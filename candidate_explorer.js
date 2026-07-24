@@ -47,7 +47,10 @@
     attributeLabels: null,                       // optional array of custom names
     outcomeLabel: 'Outcome',
     successWord: 'successful',
-    failWord: 'unsuccessful'
+    failWord: 'unsuccessful',
+    // -- logging --
+    logMode: 'compact'    // 'compact' = only the queries participants build;
+                          // 'full' = also the timestamped interaction stream
   };
   function readConfig() {
     let cfg = {};
@@ -244,9 +247,10 @@
   let queryCounter = 0;
 
   // ===== data logging (for Qualtrics / research) =====
-  // Every interaction is recorded with a timestamp. The full log is exposed as
-  // JSON in three ways: window.getProbabilityMachineData(), a hidden <textarea
-  // id="pm-data"> whose value stays in sync, and (if present) a Qualtrics
+  // By default (logMode 'compact') the stored data is just the queries the
+  // participant builds. Set logMode 'full' for the timestamped event stream too.
+  // The data is exposed three ways: window.getProbabilityMachineData(), a hidden
+  // <textarea id="pm-data"> kept in sync, and (inside a survey) a Qualtrics
   // embedded-data field named "probabilityMachineData".
   const SESSION_START = Date.now();
   const PARTICIPANT_ID = (function () {
@@ -275,24 +279,42 @@
     return list.map(t => ({ varId: t.varId, value: stateLabel(varById(t.varId), t.state), state: t.state, conn: t.conn || null }));
   }
 
+  // the queries the participant built (what they put in each blank)
+  function resultsList() {
+    return history.map(h => ({
+      queryNum: h.queryNum,
+      conditionsText: exprString(h.conditions),
+      targetText: exprString(h.targets),
+      conditions: exprData(h.conditions),
+      target: exprData(h.targets),
+      percentage: h.pct === null ? null : Number(h.pct.toFixed(2)),
+      nMatchingConditions: h.n
+    }));
+  }
+
   function currentData() {
+    // COMPACT (default): just the fields participants fill in — no timestamps,
+    // no per-drag event stream. Keeps the stored value small.
+    if (CFG.logMode !== 'full') {
+      return {
+        participantId: PARTICIPANT_ID,
+        treatment: { seed: CFG.seed, nAttributes: N_ATTR, generation: GEN ? GEN.mode : 'logistic' },
+        numResults: history.length,
+        results: resultsList()
+      };
+    }
+    // FULL: everything, including the timestamped interaction stream.
     return {
       participantId: PARTICIPANT_ID,
       startedAt: new Date(SESSION_START).toISOString(),
       exportedAt: new Date().toISOString(),
       elapsedMs: Date.now() - SESSION_START,
-      dataModel: Object.assign({    // ground truth so analysis knows the true structure
+      dataModel: Object.assign({
         nCandidates: N_CAND, seed: CFG.seed, nAttributes: N_ATTR,
         outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord
       }, GEN || {}),
       events: eventLog,
-      savedResults: history.map(h => ({
-        queryNum: h.queryNum,
-        conditions: exprData(h.conditions), conditionsText: exprString(h.conditions),
-        target: exprData(h.targets), targetText: exprString(h.targets),
-        percentage: h.pct === null ? null : Number(h.pct.toFixed(2)),
-        nMatchingConditions: h.n
-      }))
+      savedResults: resultsList()
     };
   }
 
