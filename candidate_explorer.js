@@ -283,7 +283,10 @@
     if (CFG.logMode !== 'full') {
       return {
         participantId: PARTICIPANT_ID,
-        treatment: { seed: CFG.seed, nAttributes: N_ATTR, generation: GEN ? GEN.mode : 'logistic' },
+        treatment: Object.assign(
+          { seed: CFG.seed, nAttributes: N_ATTR, generation: GEN ? GEN.mode : 'logistic' },
+          (GEN && GEN.mode === 'joint') ? { relevantIndices: GEN.relevantIndices, irrelevantRate: GEN.irrelevantRate } : {}
+        ),
         numResults: history.length,
         results: resultsList()
       };
@@ -307,15 +310,12 @@
     const json = JSON.stringify(currentData());
     const out = document.getElementById('pm-data');
     if (out) out.value = json;
-    // push to Qualtrics embedded data if we're running inside a survey.
-    // setJSEmbeddedData is the current API; setEmbeddedData is the deprecated fallback.
+    // Best-effort live push to Qualtrics (only the static method, if present).
+    // The authoritative save happens in the question's addOnPageSubmit via the
+    // question-instance method this.setJSEmbeddedData — see the survey setup.
     try {
       const qe = window.Qualtrics && Qualtrics.SurveyEngine;
-      if (qe && typeof qe.setJSEmbeddedData === 'function') {
-        qe.setJSEmbeddedData('probabilityMachineData', json);
-      } else if (qe && typeof qe.setEmbeddedData === 'function') {
-        qe.setEmbeddedData('probabilityMachineData', json);
-      }
+      if (qe && typeof qe.setJSEmbeddedData === 'function') qe.setJSEmbeddedData('probabilityMachineData', json);
     } catch (_) {}
     // Also stash the recap in the browser so a later page (the choice task) can
     // show what this participant found, regardless of embedded-data saving.
@@ -325,7 +325,9 @@
         results: resultsList(),
         nAttributes: N_ATTR,
         attributeLabels: VARS.filter(v => v.kind === 'attribute').map(v => v.label),
-        outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord
+        outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord,
+        relevantIndices: (GEN && GEN.mode === 'joint') ? GEN.relevantIndices : null,
+        irrelevantRate: (GEN && GEN.mode === 'joint') ? GEN.irrelevantRate : null
       }));
     } catch (_) {}
     return json;

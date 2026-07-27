@@ -179,15 +179,28 @@
   }
 
   // ================= data out =================
-  function currentData() { return { participantId: PID, part: 'choice', numTrials: trials.length, numAnswered: choices.length, choices: choices }; }
+  function currentData() {
+    return {
+      participantId: PID,
+      part: 'choice',
+      treatment: {
+        nAttributes: N_ATTR,
+        relevantIndices: (PART1 && PART1.relevantIndices) || null,
+        irrelevantRate: (PART1 && PART1.irrelevantRate != null) ? PART1.irrelevantRate : null
+      },
+      numTrials: trials.length,
+      numAnswered: choices.length,
+      choices: choices
+    };
+  }
   function save() {
     const json = JSON.stringify(currentData());
     const out = document.getElementById('pm-choice-data'); if (out) out.value = json;
     try { localStorage.setItem('candidateExplorer.choices', json); } catch (_) {}
+    // Best-effort live push; authoritative save is in the question's addOnPageSubmit.
     try {
       const qe = window.Qualtrics && Qualtrics.SurveyEngine;
       if (qe && typeof qe.setJSEmbeddedData === 'function') qe.setJSEmbeddedData('candidateChoiceData', json);
-      else if (qe && typeof qe.setEmbeddedData === 'function') qe.setEmbeddedData('candidateChoiceData', json);
     } catch (_) {}
     return json;
   }
