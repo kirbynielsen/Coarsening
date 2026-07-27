@@ -111,6 +111,16 @@
   const choices = [];
   let trialStart = 0;
 
+  // signal (once) that every trial is answered, so the survey can reveal its Next button
+  window.PM_CHOICE_DONE = false;
+  let completeSignaled = false;
+  function signalComplete() {
+    if (completeSignaled) return;
+    completeSignaled = true;
+    window.PM_CHOICE_DONE = true;
+    try { document.dispatchEvent(new Event('pmChoiceComplete')); } catch (_) {}
+  }
+
   function profileWords(profile) { const o = {}; for (let n = 1; n <= N_ATTR; n++) o[VARS[n - 1].label] = profile[n - 1] ? 'high' : 'low'; return o; }
   function candidateCardHTML(profile, side, label) {
     let chips = '';
@@ -124,8 +134,8 @@
   function renderTrial() {
     const host = document.getElementById('choice');
     if (!host) return;
-    if (!trials.length) { host.innerHTML = '<div class="cc-warn">No choice trials were configured.</div>'; return; }
-    if (current >= trials.length) { host.innerHTML = '<div class="cc-done">&#10003; All done &mdash; thank you!</div>'; save(); return; }
+    if (!trials.length) { host.innerHTML = '<div class="cc-warn">No choice trials were configured.</div>'; signalComplete(); return; }
+    if (current >= trials.length) { host.innerHTML = '<div class="cc-done">&#10003; All done &mdash; you can continue below.</div>'; save(); signalComplete(); return; }
     const t = trials[current];
     host.innerHTML =
       '<div class="cc-progress">Choice ' + (current + 1) + ' of ' + trials.length + '</div>' +
