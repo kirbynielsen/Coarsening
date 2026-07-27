@@ -1,17 +1,9 @@
 /* Candidate choice task (Part 2) — external build. Put <div id="pm-choice-root"></div> in the question. */
 (function(){
-  var CSS = "\n:root {\n  --color-background-primary: #ffffff;\n  --color-background-secondary: #f7f6f2;\n  --color-background-tertiary: #efede5;\n  --color-background-info: #E6F1FB;\n  --color-text-primary: #1a1a1a;\n  --color-text-secondary: #5f5e5a;\n  --color-text-tertiary: #888780;\n  --color-text-info: #185FA5;\n  --color-text-warning: #854F0B;\n  --color-border-tertiary: rgba(0,0,0,0.15);\n  --color-border-secondary: rgba(0,0,0,0.3);\n  --color-border-info: #378ADD;\n  --border-radius-md: 8px;\n  --border-radius-lg: 12px;\n  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;\n  --font-mono: 'SF Mono', Menlo, Consolas, monospace;\n  --light1-fill: #EF9F27; --light1-stroke: #BA7517; --light1-bg: #FAEEDA; --light1-text: #854F0B;\n  --light2-fill: #1D9E75; --light2-stroke: #0F6E56; --light2-bg: #E1F5EE; --light2-text: #085041;\n  --light3-fill: #7F77DD; --light3-stroke: #534AB7; --light3-bg: #EEEDFE; --light3-text: #3C3489;\n  --sound-fill: #185FA5; --sound-bg: #E6F1FB; --sound-text: #042C53;\n}\n* { box-sizing: border-box; }\n.pm-choice { font-family: var(--font-sans); max-width: 820px; margin: 0 auto; color: var(--color-text-primary); }\n\n/* chips (shared look with Part 1) */\n.mini-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 0.5px solid var(--color-border-secondary); border-radius: 999px; font-size: 13px; vertical-align: middle; background: var(--color-background-primary); }\n.mini-chip.l1.state-on { background: var(--light1-bg); border-color: var(--light1-fill); color: var(--light1-text); }\n.mini-chip.l2.state-on { background: var(--light2-bg); border-color: var(--light2-fill); color: var(--light2-text); }\n.mini-chip.l3.state-on { background: var(--light3-bg); border-color: var(--light3-fill); color: var(--light3-text); }\n.mini-chip.state-off { background: var(--color-background-tertiary); color: var(--color-text-secondary); }\n.mini-chip.kind-sound.state-on { background: var(--sound-bg); border-color: var(--sound-fill); color: var(--sound-text); }\n.mini-bulb { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }\n.mini-bulb.l1.on { background: var(--light1-fill); border: 1.5px solid var(--light1-stroke); }\n.mini-bulb.l2.on { background: var(--light2-fill); border: 1.5px solid var(--light2-stroke); }\n.mini-bulb.l3.on { background: var(--light3-fill); border: 1.5px solid var(--light3-stroke); }\n.mini-bulb.off { background: transparent; border: 1.5px solid currentColor; }\n\n/* recap */\n.recap { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 16px; margin-bottom: 1.5rem; }\n.recap-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-tertiary); font-weight: 600; margin-bottom: 10px; }\n.recap-item { font-size: 13px; line-height: 1.5; padding: 6px 0; border-top: 0.5px solid var(--color-border-tertiary); display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }\n.recap-item:first-of-type { border-top: none; }\n.recap-empty { font-size: 13px; color: var(--color-text-tertiary); font-style: italic; }\n.hist-among { color: var(--color-text-secondary); }\n.hist-arrow { color: var(--color-text-tertiary); margin: 0 3px; }\n.expr-conn { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-tertiary); margin: 0 2px; }\n.pct-big { font-size: 14px; font-weight: 600; color: var(--color-text-primary); font-family: var(--font-mono); }\n.pct-none { color: var(--color-text-tertiary); }\n.spec-empty { color: var(--color-text-tertiary); font-style: italic; }\n\n/* choice arena */\n.cc-progress { font-size: 12px; color: var(--color-text-tertiary); font-family: var(--font-mono); margin-bottom: 6px; }\n.cc-instructions { font-size: 15px; color: var(--color-text-primary); margin-bottom: 16px; }\n.cc-arena { display: flex; align-items: stretch; justify-content: center; gap: 14px; flex-wrap: wrap; }\n.cc-card { flex: 1 1 240px; min-width: 220px; max-width: 340px; background: var(--color-background-primary); border: 1.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 16px; cursor: pointer; text-align: left; font-family: var(--font-sans); transition: border-color 0.12s, box-shadow 0.12s, transform 0.05s; }\n.cc-card:hover { border-color: var(--color-border-info); box-shadow: 0 4px 16px rgba(0,0,0,0.10); }\n.cc-card:active { transform: translateY(1px); }\n.cc-card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); margin-bottom: 12px; }\n.cc-attrs { display: flex; flex-direction: column; gap: 8px; }\n.cc-attr { display: flex; }\n.cc-pick { margin-top: 14px; font-size: 12px; font-weight: 600; color: var(--color-text-info); text-align: center; padding: 7px; border-radius: var(--border-radius-md); background: var(--color-background-info); }\n.cc-equal { align-self: center; flex: 0 0 auto; background: var(--color-background-secondary); border: 1.5px solid var(--color-border-secondary); border-radius: 999px; padding: 12px 16px; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; font-family: var(--font-sans); line-height: 1.2; text-align: center; transition: background 0.12s, color 0.12s; }\n.cc-equal:hover { background: var(--color-background-tertiary); color: var(--color-text-primary); }\n.cc-done { text-align: center; font-size: 16px; color: var(--light2-text); padding: 2rem; background: var(--light2-bg); border-radius: var(--border-radius-lg); }\n.cc-warn { font-size: 13px; color: var(--color-text-warning); font-style: italic; padding: 1rem; text-align: center; }\n";
+  var CSS = "\n:root {\n  --color-background-primary: #ffffff;\n  --color-background-secondary: #f7f6f2;\n  --color-background-tertiary: #efede5;\n  --color-background-info: #E6F1FB;\n  --color-text-primary: #1a1a1a;\n  --color-text-secondary: #5f5e5a;\n  --color-text-tertiary: #888780;\n  --color-text-info: #185FA5;\n  --color-text-warning: #854F0B;\n  --color-border-tertiary: rgba(0,0,0,0.15);\n  --color-border-secondary: rgba(0,0,0,0.3);\n  --color-border-info: #378ADD;\n  --border-radius-md: 8px;\n  --border-radius-lg: 12px;\n  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;\n  --font-mono: 'SF Mono', Menlo, Consolas, monospace;\n  --light1-fill: #EF9F27; --light1-stroke: #BA7517; --light1-bg: #FAEEDA; --light1-text: #854F0B;\n  --light2-fill: #1D9E75; --light2-stroke: #0F6E56; --light2-bg: #E1F5EE; --light2-text: #085041;\n  --light3-fill: #7F77DD; --light3-stroke: #534AB7; --light3-bg: #EEEDFE; --light3-text: #3C3489;\n  --sound-fill: #185FA5; --sound-bg: #E6F1FB; --sound-text: #042C53;\n}\n* { box-sizing: border-box; }\n.pm-choice { font-family: var(--font-sans); max-width: 820px; margin: 0 auto; color: var(--color-text-primary); }\n\n/* chips (shared look with Part 1) */\n.mini-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 0.5px solid var(--color-border-secondary); border-radius: 999px; font-size: 13px; vertical-align: middle; background: var(--color-background-primary); }\n.mini-chip.l1.state-on { background: var(--light1-bg); border-color: var(--light1-fill); color: var(--light1-text); }\n.mini-chip.l2.state-on { background: var(--light2-bg); border-color: var(--light2-fill); color: var(--light2-text); }\n.mini-chip.l3.state-on { background: var(--light3-bg); border-color: var(--light3-fill); color: var(--light3-text); }\n.mini-chip.state-off { background: var(--color-background-tertiary); color: var(--color-text-secondary); }\n.mini-chip.kind-sound.state-on { background: var(--sound-bg); border-color: var(--sound-fill); color: var(--sound-text); }\n.mini-bulb { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }\n.mini-bulb.l1.on { background: var(--light1-fill); border: 1.5px solid var(--light1-stroke); }\n.mini-bulb.l2.on { background: var(--light2-fill); border: 1.5px solid var(--light2-stroke); }\n.mini-bulb.l3.on { background: var(--light3-fill); border: 1.5px solid var(--light3-stroke); }\n.mini-bulb.off { background: transparent; border: 1.5px solid currentColor; }\n\n/* recap */\n.recap { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 16px; margin-bottom: 1.5rem; }\n.recap-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-tertiary); font-weight: 600; margin-bottom: 10px; }\n.recap-item { font-size: 13px; line-height: 1.5; padding: 6px 0; border-top: 0.5px solid var(--color-border-tertiary); display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }\n.recap-item:first-of-type { border-top: none; }\n.recap-empty { font-size: 13px; color: var(--color-text-tertiary); font-style: italic; }\n.hist-among { color: var(--color-text-secondary); }\n.hist-arrow { color: var(--color-text-tertiary); margin: 0 3px; }\n.expr-conn { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-tertiary); margin: 0 2px; }\n.pct-big { font-size: 14px; font-weight: 600; color: var(--color-text-primary); font-family: var(--font-mono); }\n.pct-none { color: var(--color-text-tertiary); }\n.spec-empty { color: var(--color-text-tertiary); font-style: italic; }\n\n/* choice arena */\n.cc-progress { font-size: 12px; color: var(--color-text-tertiary); font-family: var(--font-mono); margin-bottom: 6px; }\n.cc-instructions { font-size: 15px; color: var(--color-text-primary); margin-bottom: 16px; }\n.cc-arena { display: flex; align-items: stretch; justify-content: center; gap: 12px; flex-wrap: wrap; animation: ccIn 0.28s ease; }\n@keyframes ccIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }\n/* all three choices are equal-sized cards */\n.cc-card { display: flex; flex-direction: column; flex: 1 1 0; min-width: 150px; max-width: 300px; background: var(--color-background-primary); border: 2px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 16px; cursor: pointer; text-align: left; font-family: var(--font-sans); transition: border-color 0.12s, box-shadow 0.12s, transform 0.06s, opacity 0.2s; }\n.cc-card:hover { border-color: var(--color-border-info); box-shadow: 0 4px 16px rgba(0,0,0,0.10); }\n.cc-card:active { transform: translateY(1px); }\n.cc-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-bottom: 12px; text-align: center; }\n.cc-attrs { display: flex; flex-direction: column; gap: 8px; }\n.cc-attr { display: flex; }\n.cc-pick { margin-top: auto; padding-top: 14px; }\n.cc-pick span { display: block; font-size: 12px; font-weight: 600; color: var(--color-text-info); text-align: center; padding: 8px; border-radius: var(--border-radius-md); background: var(--color-background-info); transition: background 0.12s, color 0.12s; }\n/* the \"equal\" card */\n.cc-card-equal .cc-equal-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--color-text-secondary); min-height: 60px; }\n.cc-equal-symbol { font-size: 34px; font-weight: 300; line-height: 1; color: var(--color-text-tertiary); }\n.cc-equal-text { font-size: 13px; }\n\n/* click feedback: selected card lights up, others fade, then it advances */\n.cc-arena.cc-locked .cc-card { cursor: default; }\n.cc-arena.cc-locked .cc-card:hover { box-shadow: none; }\n.cc-card.cc-dim { opacity: 0.3; border-color: var(--color-border-tertiary) !important; }\n.cc-card.cc-selected { border-color: var(--light2-fill); box-shadow: 0 0 0 4px var(--light2-bg); transform: translateY(-2px); }\n.cc-card.cc-selected .cc-pick span { background: var(--light2-fill); color: #fff; }\n.cc-card.cc-selected .cc-pick span::before { content: '\\2713\\00a0\\00a0'; }\n.cc-done { text-align: center; font-size: 16px; color: var(--light2-text); padding: 2rem; background: var(--light2-bg); border-radius: var(--border-radius-lg); }\n.cc-warn { font-size: 13px; color: var(--color-text-warning); font-style: italic; padding: 1rem; text-align: center; }\n";
   var HTML = "<div class=\"pm-choice\">\n  <div class=\"recap\" id=\"recap\"></div>\n  <div id=\"choice\"></div>\n</div>\n<textarea id=\"pm-choice-data\" aria-hidden=\"true\" tabindex=\"-1\" style=\"position:absolute; left:-9999px; top:0; width:1px; height:1px; opacity:0;\"></textarea>";
-  var started = false;
-  function boot(){
-    if (started) return;
-    var root = document.getElementById("pm-choice-root");
-    if (!root) { return setTimeout(boot, 40); }
-    started = true;
-    var st = document.createElement("style"); st.textContent = CSS; (document.head||document.documentElement).appendChild(st);
-    root.insertAdjacentHTML("beforeend", HTML);
-    run();
-  }
+  var started=false;
+  function boot(){ if(started)return; var root=document.getElementById("pm-choice-root"); if(!root){return setTimeout(boot,40);} started=true; var st=document.createElement("style"); st.textContent=CSS; (document.head||document.documentElement).appendChild(st); root.insertAdjacentHTML("beforeend",HTML); run(); }
   function run(){
 
 (function () {
@@ -120,11 +112,15 @@
   let trialStart = 0;
 
   function profileWords(profile) { const o = {}; for (let n = 1; n <= N_ATTR; n++) o[VARS[n - 1].label] = profile[n - 1] ? 'high' : 'low'; return o; }
-  function cardHTML(profile, side, label) {
+  function candidateCardHTML(profile, side, label) {
     let chips = '';
     for (let n = 1; n <= N_ATTR; n++) chips += '<div class="cc-attr">' + valueChip(varById('attr' + n), profile[n - 1] ? 'on' : 'off') + '</div>';
-    return '<button type="button" class="cc-card" data-choice="' + side + '"><div class="cc-card-title">' + label + '</div><div class="cc-attrs">' + chips + '</div><div class="cc-pick">Choose this candidate</div></button>';
+    return '<button type="button" class="cc-card" data-choice="' + side + '"><div class="cc-card-title">' + label + '</div><div class="cc-attrs">' + chips + '</div><div class="cc-pick"><span>Choose this candidate</span></div></button>';
   }
+  function equalCardHTML() {
+    return '<button type="button" class="cc-card cc-card-equal" data-choice="equal"><div class="cc-card-title">Tie</div><div class="cc-equal-body"><span class="cc-equal-symbol">=</span><span class="cc-equal-text">Equally likely</span></div><div class="cc-pick"><span>They’re equal</span></div></button>';
+  }
+  let locked = false;
   function renderTrial() {
     const host = document.getElementById('choice');
     if (!host) return;
@@ -134,29 +130,42 @@
     host.innerHTML =
       '<div class="cc-progress">Choice ' + (current + 1) + ' of ' + trials.length + '</div>' +
       (CFG.instructions ? '<div class="cc-instructions">' + CFG.instructions + '</div>' : '') +
-      '<div class="cc-arena">' +
-        cardHTML(t.left, 'left', 'Candidate A') +
-        '<button type="button" class="cc-equal" data-choice="equal">They’re<br>equal</button>' +
-        cardHTML(t.right, 'right', 'Candidate B') +
+      '<div class="cc-arena" id="cc-arena">' +
+        candidateCardHTML(t.left, 'left', 'Candidate A') +
+        equalCardHTML() +
+        candidateCardHTML(t.right, 'right', 'Candidate B') +
       '</div>';
     const btns = host.querySelectorAll('[data-choice]');
-    for (let i = 0; i < btns.length; i++) btns[i].addEventListener('click', function () { choose(this.getAttribute('data-choice')); });
+    for (let i = 0; i < btns.length; i++) btns[i].addEventListener('click', function () { onChoose(this); });
     trialStart = Date.now();
   }
-  function choose(which) {
+  function onChoose(btnEl) {
+    if (locked) return;              // ignore extra clicks during the feedback pause
+    locked = true;
+    const which = btnEl.getAttribute('data-choice');
+    const rt = Date.now() - trialStart;
+    const arena = document.getElementById('cc-arena');
+    if (arena) {
+      arena.classList.add('cc-locked');
+      const cards = arena.querySelectorAll('.cc-card');
+      for (let i = 0; i < cards.length; i++) cards[i].classList.add(cards[i] === btnEl ? 'cc-selected' : 'cc-dim');
+    }
     const t = trials[current];
-    choices.push({
-      trialId: t.id,
-      order: current + 1,
-      choice: which,                         // 'left' | 'right' | 'equal'
-      candidateA: profileWords(t.left),      // displayed left
-      candidateB: profileWords(t.right),     // displayed right
-      swappedFromConfig: t.swapped,
-      rtMs: Date.now() - trialStart
-    });
-    save();
-    current++;
-    renderTrial();
+    setTimeout(function () {
+      choices.push({
+        trialId: t.id,
+        order: current + 1,
+        choice: which,                         // 'left' | 'right' | 'equal'
+        candidateA: profileWords(t.left),      // displayed left
+        candidateB: profileWords(t.right),     // displayed right
+        swappedFromConfig: t.swapped,
+        rtMs: rt
+      });
+      save();
+      current++;
+      locked = false;
+      renderTrial();
+    }, 550);
   }
 
   // ================= data out =================
@@ -181,5 +190,5 @@
 })();
 
   }
-  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
+  if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}
 })();
