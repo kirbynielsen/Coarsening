@@ -15,6 +15,7 @@
     var t = d.treatment || {};
     return {
       results: d.results || [],
+      labelOrder: d.labelOrder || t.labelOrder || null,
       nAttributes: d.nAttributes || t.nAttributes || null,
       attributeLabels: d.attributeLabels || null,
       outcomeLabel: d.outcomeLabel || t.outcomeLabel || 'Outcome',
@@ -29,8 +30,19 @@
   var SUCCESS = (PART1 && PART1.successWord) || 'successful';
   var FAIL = (PART1 && PART1.failWord) || 'unsuccessful';
 
+  // sigma from Part 1: LABEL_ORDER[n-1] = zero-based display position of internal attribute n.
+  // Labels and colours follow the display position so chips look exactly as they did in Part 1.
+  var LABEL_ORDER = (function () {
+    var lo = (PART1 && Array.isArray(PART1.labelOrder)) ? PART1.labelOrder.map(Number) : null;
+    var valid = lo && lo.length === N_ATTR && lo.slice().sort(function (a, b) { return a - b; }).every(function (v, i) { return v === i; });
+    if (!valid) { lo = []; for (var i = 0; i < N_ATTR; i++) lo.push(i); }
+    return lo;
+  })();
   var VARS = [];
-  for (var n = 1; n <= N_ATTR; n++) VARS.push({ id: 'attr' + n, kind: 'attribute', n: n, label: (ATTR_LABELS && ATTR_LABELS[n - 1]) || ('Attribute ' + n) });
+  for (var n = 1; n <= N_ATTR; n++) {
+    var pos = LABEL_ORDER[n - 1] + 1;
+    VARS.push({ id: 'attr' + n, kind: 'attribute', n: n, pos: pos, label: (ATTR_LABELS && ATTR_LABELS[n - 1]) || ('Attribute ' + pos) });
+  }
   VARS.push({ id: 'success', kind: 'outcome', label: OUTCOME_LABEL });
   function varById(id) { for (var i = 0; i < VARS.length; i++) if (VARS[i].id === id) return VARS[i]; return null; }
   function stateLabel(v, state) { var hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS : FAIL) : (hi ? 'high' : 'low'); }
@@ -38,18 +50,18 @@
   function valueChip(v, state) {
     if (!v) return '';
     if (v.kind === 'outcome') return '<span class="mini-chip kind-sound state-' + state + '">' + OUTCOME_SVG + stateLabel(v, state) + '</span>';
-    return '<span class="mini-chip l' + v.n + ' state-' + state + '"><span class="mini-bulb l' + v.n + ' ' + state + '"></span>A' + v.n + ' ' + stateLabel(v, state) + '</span>';
+    return '<span class="mini-chip l' + v.pos + ' state-' + state + '"><span class="mini-bulb l' + v.pos + ' ' + state + '"></span>A' + v.pos + ' ' + stateLabel(v, state) + '</span>';
   }
   function exprHTML(list) { return (list || []).map(function (e, i) { return (i > 0 ? '<span class="expr-conn">' + (e.conn === 'or' ? 'or' : 'and') + '</span>' : '') + valueChip(varById(e.varId), e.state); }).join(''); }
 
   (function ensureLightStyles() {
-    var extra = VARS.filter(function (v) { return v.kind === 'attribute' && v.n > 3; });
+    var extra = VARS.filter(function (v) { return v.kind === 'attribute' && v.pos > 3; });
     if (!extra.length) return;
     var css = '';
     extra.forEach(function (v) {
-      var hue = Math.round((v.n * 47) % 360);
+      var hue = Math.round((v.pos * 47) % 360);
       var fill = 'hsl(' + hue + ' 62% 52%)', stroke = 'hsl(' + hue + ' 62% 36%)', bg = 'hsl(' + hue + ' 62% 94%)', text = 'hsl(' + hue + ' 62% 28%)';
-      var k = 'l' + v.n;
+      var k = 'l' + v.pos;
       css += '.mini-bulb.' + k + '.on{background:' + fill + ';border-color:' + stroke + ';}';
       css += '.mini-chip.' + k + '.state-on{background:' + bg + ';border-color:' + fill + ';color:' + text + ';}';
     });

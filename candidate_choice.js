@@ -14,11 +14,20 @@
     attributeLabels: null,      // falls back to Part 1's labels
     outcomeLabel: null, successWord: null, failWord: null,
     showRecap: true,
-    randomizeOrder: false,      // shuffle trial order (seeded)
-    randomizeSides: false,      // randomly swap which candidate is on the left (recorded)
-    seed: 1,
+    // -- trial generation (experiment.pdf, Section 5) --
+    // Every distinct pair of relevant profiles (HH, HL, LH, LL -> 6 pairs) is shown
+    // `repetitions` times. Irrelevant attributes are held at the constant c for both
+    // candidates in every trial; c is drawn per participant unless given.
+    relevantIndices: [1, 2],    // internal attributes that vary across candidates
+    repetitions: 7,             // 6 pairs x 7 = 42 choices
+    constant: null,             // c: 0/1 per attribute NOT in relevantIndices, in ascending attribute order; null = random per participant
+    randomizeOrder: true,       // shuffle the 42 trials per participant
+    randomizeSides: true,       // left/right drawn independently for every trial
+    seed: null,                 // null = fresh randomness per participant; set an integer only for testing
+    showTie: true,              // offer the "equally likely" option
+    labelOrder: null,           // sigma; falls back to Part 1's (display-only, see explorer)
     instructions: 'Which candidate do you think is more likely to be successful?',
-    trials: []                  // [{ id, left, right }] — see notes at bottom of file
+    trials: []                  // optional explicit override [{ id, left, right }] — bypasses the generator
   };
   function mergeInto(dst, src) { if (src && typeof src === 'object') Object.assign(dst, src); return dst; }
   function readConfig() {
@@ -45,6 +54,9 @@
     return {
       participantId: d.participantId || null,
       results: d.results || [],
+      model: d.model || t.model || null,
+      distribution: d.distribution || t.distribution || null,
+      labelOrder: d.labelOrder || t.labelOrder || null,
       nAttributes: d.nAttributes || t.nAttributes || null,
       attributeLabels: d.attributeLabels || null,
       outcomeLabel: d.outcomeLabel || t.outcomeLabel || null,
@@ -64,33 +76,46 @@
   const FAIL_WORD = CFG.failWord || (PART1 && PART1.failWord) || 'unsuccessful';
 
   function mulberry32(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = seed; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-  const rng = mulberry32(CFG.seed | 0);
+  const rng = (CFG.seed === null || CFG.seed === undefined) ? Math.random : mulberry32(CFG.seed | 0);
 
   const PID = (function () { try { const p = new URLSearchParams(location.search); return p.get('pid') || p.get('participant') || p.get('id') || (PART1 && PART1.participantId) || ('anon-' + Math.random().toString(36).slice(2, 10)); } catch (_) { return 'anon-' + Math.random().toString(36).slice(2, 10); } })();
 
   // ================= vars + chip rendering (shared look with Part 1) =================
+  // sigma: LABEL_ORDER[n-1] = zero-based display position of internal attribute n (same as Part 1)
+  const LABEL_ORDER = (function () {
+    let lo = CFG.labelOrder || (PART1 && PART1.labelOrder) || null;
+    if (Array.isArray(lo)) lo = lo.map(Number);
+    const valid = lo && lo.length === N_ATTR && lo.slice().sort((a, b) => a - b).every((v, i) => v === i);
+    if (!valid) { lo = []; for (let i = 0; i < N_ATTR; i++) lo.push(i); }
+    return lo;
+  })();
+  const DISPLAY_ORDER = []; LABEL_ORDER.forEach((pos, i) => { DISPLAY_ORDER[pos] = i + 1; });
   const VARS = [];
-  for (let n = 1; n <= N_ATTR; n++) VARS.push({ id: 'attr' + n, kind: 'attribute', n: n, label: (ATTR_LABELS && ATTR_LABELS[n - 1]) || ('Attribute ' + n) });
+  for (let n = 1; n <= N_ATTR; n++) {
+    const pos = LABEL_ORDER[n - 1] + 1;
+    VARS.push({ id: 'attr' + n, kind: 'attribute', n: n, pos: pos, label: (ATTR_LABELS && ATTR_LABELS[n - 1]) || ('Attribute ' + pos) });
+  }
   VARS.push({ id: 'success', kind: 'outcome', label: OUTCOME_LABEL });
+  const ATTRS_DISPLAY = VARS.filter(v => v.kind === 'attribute').sort((a, b) => a.pos - b.pos);
   function varById(id) { for (let i = 0; i < VARS.length; i++) if (VARS[i].id === id) return VARS[i]; return null; }
   function stateLabel(v, state) { const hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS_WORD : FAIL_WORD) : (hi ? 'high' : 'low'); }
   const OUTCOME_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
   function valueChip(v, state) {
     if (!v) return '';
     if (v.kind === 'outcome') return '<span class="mini-chip kind-sound state-' + state + '">' + OUTCOME_SVG + stateLabel(v, state) + '</span>';
-    return '<span class="mini-chip l' + v.n + ' state-' + state + '"><span class="mini-bulb l' + v.n + ' ' + state + '"></span>A' + v.n + ' ' + stateLabel(v, state) + '</span>';
+    return '<span class="mini-chip l' + v.pos + ' state-' + state + '"><span class="mini-bulb l' + v.pos + ' ' + state + '"></span>A' + v.pos + ' ' + stateLabel(v, state) + '</span>';
   }
   function exprHTML(list) { return (list || []).map((e, i) => (i > 0 ? '<span class="expr-conn">' + (e.conn === 'or' ? 'or' : 'and') + '</span>' : '') + valueChip(varById(e.varId), e.state)).join(''); }
 
   // generate colour styles for attributes beyond the hard-coded 1–3
   (function ensureLightStyles() {
-    const extra = VARS.filter(v => v.kind === 'attribute' && v.n > 3);
+    const extra = VARS.filter(v => v.kind === 'attribute' && v.pos > 3);
     if (!extra.length) return;
     let css = '';
     extra.forEach(v => {
-      const hue = Math.round((v.n * 47) % 360);
+      const hue = Math.round((v.pos * 47) % 360);
       const fill = 'hsl(' + hue + ' 62% 52%)', stroke = 'hsl(' + hue + ' 62% 36%)', bg = 'hsl(' + hue + ' 62% 94%)', text = 'hsl(' + hue + ' 62% 28%)';
-      const k = 'l' + v.n;
+      const k = 'l' + v.pos;
       css += '.mini-bulb.' + k + '.on{background:' + fill + ';border-color:' + stroke + ';}';
       css += '.mini-chip.' + k + '.state-on{background:' + bg + ';border-color:' + fill + ';color:' + text + ';}';
     });
@@ -126,9 +151,39 @@
     else if (spec && typeof spec === 'object') Object.keys(spec).forEach(function (k) { const i = parseInt(k, 10) - 1; if (i >= 0 && i < N_ATTR) arr[i] = parseVal(spec[k]); });
     return arr;
   }
-  let trials = CFG.trials.map(function (t, idx) {
-    return { id: (t.id != null ? String(t.id) : ('trial' + (idx + 1))), left: toProfile(t.left), right: toProfile(t.right), swapped: false };
-  });
+  // ----- generator: every distinct pair of relevant profiles, `repetitions` times -----
+  // Relevant profile keys use the internal order of relevantIndices, e.g. "10" = x1 high, x2 low.
+  const REL = (Array.isArray(CFG.relevantIndices) ? CFG.relevantIndices : [1, 2]).map(Number).filter(function (i) { return i >= 1 && i <= N_ATTR; });
+  const IRREL = []; for (let n = 1; n <= N_ATTR; n++) if (REL.indexOf(n) === -1) IRREL.push(n);
+  // c: the constant value of each irrelevant attribute (in ascending internal order); drawn per participant
+  const CONST = (function () {
+    let c = Array.isArray(CFG.constant) ? CFG.constant.map(function (v) { return parseVal(v) ? 1 : 0; }) : null;
+    if (!c || c.length !== IRREL.length) c = IRREL.map(function () { return rng() < 0.5 ? 1 : 0; });
+    return c;
+  })();
+  function fullProfile(relKey) {           // relevant key -> internal 0/1 array of length N_ATTR
+    const arr = new Array(N_ATTR).fill(false);
+    REL.forEach(function (n, b) { arr[n - 1] = relKey.charAt(b) === '1'; });
+    IRREL.forEach(function (n, b) { arr[n - 1] = CONST[b] === 1; });
+    return arr;
+  }
+  function relKeys() {                     // all 2^|REL| relevant profiles, "11","10","01","00"
+    const out = []; const m = 1 << REL.length;
+    for (let v = m - 1; v >= 0; v--) { let s = ''; for (let b = REL.length - 1; b >= 0; b--) s += ((v >> b) & 1) ? '1' : '0'; out.push(s); }
+    return out;
+  }
+  function hl(key) { return key.replace(/1/g, 'H').replace(/0/g, 'L'); }
+  function generateTrials() {
+    const keys = relKeys(); const out = []; const reps = Math.max(1, CFG.repetitions | 0);
+    for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
+      const pairId = hl(keys[i]) + '-' + hl(keys[j]);
+      for (let r = 1; r <= reps; r++) out.push({ id: pairId + '#' + r, pairId: pairId, rep: r, a: keys[i], b: keys[j], left: fullProfile(keys[i]), right: fullProfile(keys[j]), swapped: false });
+    }
+    return out;
+  }
+  let trials = CFG.trials.length
+    ? CFG.trials.map(function (t, idx) { return { id: (t.id != null ? String(t.id) : ('trial' + (idx + 1))), pairId: null, rep: null, a: null, b: null, left: toProfile(t.left), right: toProfile(t.right), swapped: false }; })
+    : generateTrials();
   if (CFG.randomizeOrder) { for (let i = trials.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const tmp = trials[i]; trials[i] = trials[j]; trials[j] = tmp; } }
   if (CFG.randomizeSides) trials.forEach(function (t) { if (rng() < 0.5) { const l = t.left; t.left = t.right; t.right = l; t.swapped = true; } });
 
@@ -146,10 +201,13 @@
     try { document.dispatchEvent(new Event('pmChoiceComplete')); } catch (_) {}
   }
 
-  function profileWords(profile) { const o = {}; for (let n = 1; n <= N_ATTR; n++) o[VARS[n - 1].label] = profile[n - 1] ? 'high' : 'low'; return o; }
+  // displayed words keyed by the label the participant saw (in display order)
+  function profileWords(profile) { const o = {}; ATTRS_DISPLAY.forEach(function (v) { o[v.label] = profile[v.n - 1] ? 'high' : 'low'; }); return o; }
+  // internal 0/1 vector, index = internal attribute - 1
+  function profileBits(profile) { return profile.map(function (b) { return b ? 1 : 0; }); }
   function candidateCardHTML(profile, side, label) {
     let chips = '';
-    for (let n = 1; n <= N_ATTR; n++) chips += '<div class="cc-attr">' + valueChip(varById('attr' + n), profile[n - 1] ? 'on' : 'off') + '</div>';
+    ATTRS_DISPLAY.forEach(function (v) { chips += '<div class="cc-attr">' + valueChip(v, profile[v.n - 1] ? 'on' : 'off') + '</div>'; });
     return '<button type="button" class="cc-card" data-choice="' + side + '"><div class="cc-card-title">' + label + '</div><div class="cc-attrs">' + chips + '</div><div class="cc-pick"><span>Choose this candidate</span></div></button>';
   }
   function equalCardHTML() {
@@ -167,7 +225,7 @@
       (CFG.instructions ? '<div class="cc-instructions">' + CFG.instructions + '</div>' : '') +
       '<div class="cc-arena" id="cc-arena">' +
         candidateCardHTML(t.left, 'left', 'Candidate A') +
-        equalCardHTML() +
+        (CFG.showTie === false ? '' : equalCardHTML()) +
         candidateCardHTML(t.right, 'right', 'Candidate B') +
       '</div>';
     const btns = host.querySelectorAll('[data-choice]');
@@ -187,13 +245,20 @@
     }
     const t = trials[current];
     setTimeout(function () {
+      // which relevant profile was chosen (internal key, e.g. "10"), or 'equal'
+      const chosenKey = which === 'equal' ? 'equal' : (which === 'left' ? (t.swapped ? t.b : t.a) : (t.swapped ? t.a : t.b));
       choices.push({
         trialId: t.id,
-        order: current + 1,
+        pairId: t.pairId,                      // e.g. "HH-HL" (relevant attributes, internal order)
+        rep: t.rep,                            // 1..repetitions
+        order: current + 1,                    // position in this participant's sequence
         choice: which,                         // 'left' | 'right' | 'equal'
-        candidateA: profileWords(t.left),      // displayed left
-        candidateB: profileWords(t.right),     // displayed right
-        swappedFromConfig: t.swapped,
+        chosen: chosenKey,                     // relevant profile chosen (internal), or 'equal'
+        leftInternal: profileBits(t.left),     // full internal 0/1 vector shown on the left
+        rightInternal: profileBits(t.right),
+        candidateA: profileWords(t.left),      // as displayed (labels under sigma), left
+        candidateB: profileWords(t.right),     // as displayed, right
+        swapped: t.swapped,                    // true = pair's first profile was shown on the right
         rtMs: rt
       });
       save();
@@ -209,9 +274,16 @@
       participantId: PID,
       part: 'choice',
       treatment: {
+        model: (PART1 && PART1.model) || null,
+        distribution: (PART1 && PART1.distribution) || null,
         nAttributes: N_ATTR,
-        relevantIndices: (PART1 && PART1.relevantIndices) || null,
-        irrelevantRate: (PART1 && PART1.irrelevantRate != null) ? PART1.irrelevantRate : null
+        labelOrder: LABEL_ORDER,               // sigma (display positions of internal attributes)
+        displayOrder: DISPLAY_ORDER,           // internal attribute shown in each position
+        relevantIndices: REL,
+        irrelevantIndices: IRREL,
+        constant: CONST,                       // c, aligned with irrelevantIndices
+        repetitions: CFG.trials.length ? null : (CFG.repetitions | 0),
+        randomizeOrder: !!CFG.randomizeOrder, randomizeSides: !!CFG.randomizeSides, showTie: CFG.showTie !== false
       },
       numTrials: trials.length,
       numAnswered: choices.length,

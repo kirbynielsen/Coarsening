@@ -16,16 +16,32 @@
     nAttributes: 3,
     nCandidates: 1000,
     seed: 42,
-    // -- Option A: specify the data directly by its joint distribution --
-    // "joint" maps each profile (a string of 0/1 over the RELEVANT attributes,
-    // in relevantIndices order) to [ P(profile & unsuccessful), P(profile & successful) ].
-    // The values across all profiles should sum to 1. Any attributes not in
-    // relevantIndices are generated independently of the outcome ("noise").
-    joint: null,             // e.g. { "00":[0.230,0.181], "10":[0.100,0.028], "01":[0.272,0.109], "11":[0.011,0.069] }
-    relevantIndices: null,   // which displayed attributes the joint governs; default [1..k]
-    irrelevantRate: 0.5,     // P(high) for attributes not governed by the joint
-    exact: true,             // allocate exact counts (N × p) so the sample matches the joint
-    // -- Option B (fallback when joint is null): a logistic model --
+    // -- condition labels (recorded in the data; do not affect generation) --
+    model: null,             // 'big' | 'small'
+    distribution: null,      // 'D1' | 'D2'
+    // -- Option A (primary): the model as P and pi tables (experiment.pdf, Sec. 2) --
+    // "P"  maps each full attribute profile (a string of 0/1 of length nAttributes,
+    //      first character = attribute 1) to P(X = x); values sum to 1.
+    // "pi" maps the same profiles to P(success | X = x).
+    // Candidates are allocated exactly: N·P(x)·pi(x) successful and N·P(x)·(1-pi(x))
+    // unsuccessful per profile (largest-remainder rounding).
+    P: null,                 // e.g. { "00":0.512, "10":0.060, "01":0.360, "11":0.068 }
+    pi: null,                // e.g. { "00":0.875, "10":0.066667, "01":0.566667, "11":0.941176 }
+    relevantIndices: null,   // attributes that pi may depend on (metadata + a consistency check); e.g. [1,2]
+    // -- Option A' (legacy): a joint over the RELEVANT attributes only --
+    // "joint" maps each profile over relevantIndices to [ P(profile & unsuccessful),
+    // P(profile & successful) ]; other attributes are drawn i.i.d. at irrelevantRate.
+    joint: null,
+    irrelevantRate: 0.5,
+    exact: true,             // allocate exact counts (N × p) so the sample matches the distribution
+    // -- attribute label order (experiment.pdf, Sec. 4) --
+    // labelOrder = sigma as a zero-based list: attribute i (internal) is displayed in
+    // position labelOrder[i-1]. null = draw uniformly at random for this participant.
+    // The permutation is display-only: every computation and every logged varId
+    // uses the internal index; the displayed label is "Attribute <position>".
+    labelOrder: null,
+    permuteLabels: true,     // false = identity order (for testing)
+    // -- Option B (fallback when neither P/pi nor joint is given): a logistic model --
     baseline: -0.5,                              // baseline log-odds of success
     mainEffects: { 1: 1.5, 2: 0.3, 3: -0.8 },    // effect of each attribute being "high"
     interactions: [ { a: 1, b: 2, coef: 1.8 } ], // attribute a × attribute b
@@ -84,19 +100,54 @@
   const database = [];
   let GEN = null;
 
-  if (CFG.joint && typeof CFG.joint === 'object') {
-    // ----- Option A: generate directly from the joint distribution -----
-    const profiles = Object.keys(CFG.joint);
-    const k = profiles[0].length;                       // number of relevant attributes
-    let relIdx = Array.isArray(CFG.relevantIndices) ? CFG.relevantIndices.slice(0, k) : [];
-    if (relIdx.length !== k) { relIdx = []; for (let n = 1; n <= k; n++) relIdx.push(n); }
+  // ----- Option A: P and pi tables -> joint cells over the FULL profile -----
+  // Converts {P, pi} into the same cell structure the joint path uses, so one
+  // allocator serves both. Also checks Definition 2 (pi depends only on the
+  // relevant attributes) and records the result for the log.
+  let PPI = null;
+  if (CFG.P && CFG.pi && typeof CFG.P === 'object' && typeof CFG.pi === 'object') {
+    const profiles = Object.keys(CFG.P);
+    const k = profiles[0].length;
+    const joint = {};
+    let sumP = 0, piOK = true, piConst = {};
+    profiles.forEach(prof => {
+      const p = +CFG.P[prof];
+      const pi = (CFG.pi[prof] == null) ? NaN : +CFG.pi[prof];
+      if (!(p >= 0) || !(pi >= 0 && pi <= 1) || prof.length !== k) {
+        throw new Error('pm_config: bad P/pi entry for profile "' + prof + '"');
+      }
+      sumP += p;
+      joint[prof] = [p * (1 - pi), p * pi];
+      if (Array.isArray(CFG.relevantIndices)) {
+        const key = CFG.relevantIndices.map(i => prof.charAt(i - 1)).join('');
+        if (piConst[key] !== undefined && Math.abs(piConst[key] - pi) > 1e-9) piOK = false;
+        piConst[key] = pi;
+      }
+    });
+    if (profiles.length !== (1 << k)) console.warn('pm_config: P lists ' + profiles.length + ' profiles, expected ' + (1 << k));
+    if (Math.abs(sumP - 1) > 1e-6) console.warn('pm_config: P sums to ' + sumP + ', renormalizing');
+    if (!piOK) console.warn('pm_config: pi varies with attributes outside relevantIndices (Definition 2 violated)');
+    PPI = { joint: joint, k: k, piIrrelevanceOK: piOK };
+  }
+
+  if (PPI || (CFG.joint && typeof CFG.joint === 'object')) {
+    // ----- generate from cells: P/pi (full profile) or legacy joint (relevant only) -----
+    const JOINT = PPI ? PPI.joint : CFG.joint;
+    const profiles = Object.keys(JOINT);
+    const k = profiles[0].length;                       // attributes the cells span
+    let relIdx;
+    if (PPI) { relIdx = []; for (let n = 1; n <= k; n++) relIdx.push(n); }   // cells cover every attribute
+    else {
+      relIdx = Array.isArray(CFG.relevantIndices) ? CFG.relevantIndices.slice(0, k) : [];
+      if (relIdx.length !== k) { relIdx = []; for (let n = 1; n <= k; n++) relIdx.push(n); }
+    }
     N_ATTR = Math.max(CFG.nAttributes, k, Math.max.apply(null, relIdx)); // total attributes shown
 
     // flatten the joint into 2^k × 2 cells and normalize to sum 1
     const cells = [];
     let total = 0;
     profiles.forEach(prof => {
-      const pair = CFG.joint[prof];
+      const pair = JOINT[prof];
       const p0 = +(Array.isArray(pair) ? pair[0] : pair.y0);
       const p1 = +(Array.isArray(pair) ? pair[1] : pair.y1);
       cells.push({ prof: prof, y: 0, p: p0 });
@@ -135,7 +186,9 @@
     // shuffle so cells aren't contiguous, then renumber ids
     for (let i = database.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = database[i]; database[i] = database[j]; database[j] = t; }
     database.forEach((m, i) => m.id = i + 1);
-    GEN = { mode: 'joint', relevantIndices: relIdx, irrelevantRate: CFG.irrelevantRate, exact: CFG.exact !== false, joint: CFG.joint };
+    GEN = PPI
+      ? { mode: 'Ppi', relevantIndices: Array.isArray(CFG.relevantIndices) ? CFG.relevantIndices : null, piIrrelevanceOK: PPI.piIrrelevanceOK, exact: CFG.exact !== false, P: CFG.P, pi: CFG.pi }
+      : { mode: 'joint', relevantIndices: relIdx, irrelevantRate: CFG.irrelevantRate, exact: CFG.exact !== false, joint: CFG.joint };
 
   } else {
     // ----- Option B: logistic model (default / fallback) -----
@@ -169,22 +222,50 @@
     const head = document.getElementById('database-head');
     const body = document.getElementById('database-body');
 
-    const attrs = VARS.filter(v => v.kind === 'attribute');
+    const attrs = VARS_DISPLAY.filter(v => v.kind === 'attribute');   // columns in sigma order
     head.innerHTML = '<th style="width: 80px;">Candidate</th>'
       + attrs.map(v => '<th>' + v.label + '</th>').join('')
       + '<th>' + CFG.outcomeLabel + '</th>';
 
     body.innerHTML = displayOrder.map(m => '<tr>'
       + '<td class="machine-id">C' + m.id + '</td>'
-      + attrs.map(v => '<td><span class="bulb-cell l' + v.n + ' ' + (m['attr' + v.n] ? 'on' : 'off') + '"></span> <span class="hilo">' + (m['attr' + v.n] ? 'high' : 'low') + '</span></td>').join('')
+      + attrs.map(v => '<td><span class="bulb-cell l' + v.pos + ' ' + (m['attr' + v.n] ? 'on' : 'off') + '"></span> <span class="hilo">' + (m['attr' + v.n] ? 'high' : 'low') + '</span></td>').join('')
       + '<td class="' + (m.success ? 'sound-yes' : 'sound-no') + '">' + (m.success ? '✓ ' + CFG.successWord : CFG.failWord) + '</td>'
       + '</tr>').join('');
   }
 
+  // ===== attribute label order (sigma) — experiment.pdf, Section 4 =====
+  // LABEL_ORDER[n-1] = zero-based display position of internal attribute n.
+  // Drawn uniformly per participant with Math.random (deliberately NOT the dataset
+  // seed, which is fixed across participants). Display-only: the table columns,
+  // chip tray, menus and chip labels follow it; varIds and the data stay internal.
+  const LABEL_ORDER = (function () {
+    const k = N_ATTR;
+    let lo = Array.isArray(CFG.labelOrder) ? CFG.labelOrder.map(Number) : null;
+    const valid = lo && lo.length === k && lo.slice().sort((a, b) => a - b).every((v, i) => v === i);
+    if (!valid) {
+      if (lo) console.warn('pm_config: labelOrder is not a permutation of 0..' + (k - 1) + '; drawing one');
+      lo = []; for (let i = 0; i < k; i++) lo.push(i);
+      if (CFG.permuteLabels !== false) {
+        for (let i = k - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = lo[i]; lo[i] = lo[j]; lo[j] = t; }
+      }
+    }
+    return lo;
+  })();
+  // DISPLAY_ORDER[j] = internal attribute shown in zero-based position j (sigma^-1)
+  const DISPLAY_ORDER = []; LABEL_ORDER.forEach((pos, i) => { DISPLAY_ORDER[pos] = i + 1; });
+
   // ===== state =====
+  // Each attribute carries its internal index n and its display position pos.
+  // Label and colour follow pos, so "Attribute 1" is always the first column.
   const VARS = [];
-  for (let n = 1; n <= N_ATTR; n++) VARS.push({ id: 'attr' + n, kind: 'attribute', n, label: (CFG.attributeLabels && CFG.attributeLabels[n - 1]) || ('Attribute ' + n) });
+  for (let n = 1; n <= N_ATTR; n++) {
+    const pos = LABEL_ORDER[n - 1] + 1;
+    VARS.push({ id: 'attr' + n, kind: 'attribute', n, pos, label: (CFG.attributeLabels && CFG.attributeLabels[pos - 1]) || ('Attribute ' + pos) });
+  }
   VARS.push({ id: 'success', kind: 'outcome', label: CFG.outcomeLabel });
+  // the same variables in the order the participant sees them
+  const VARS_DISPLAY = VARS.filter(v => v.kind === 'attribute').sort((a, b) => a.pos - b.pos).concat(VARS.filter(v => v.kind === 'outcome'));
   function varById(id) { return VARS.find(v => v.id === id); }
   // display word for a variable's positive ('on') / negative ('off') value
   function stateLabel(v, state) {
@@ -195,16 +276,16 @@
   // Colours are hard-coded in CSS for attributes 1–3; generate matching styles for
   // any extra attributes so 4+ look consistent without editing the stylesheet.
   function ensureLightStyles() {
-    const extra = VARS.filter(v => v.kind === 'attribute' && v.n > 3);
+    const extra = VARS.filter(v => v.kind === 'attribute' && v.pos > 3);
     if (extra.length === 0) return;
     let css = '';
     extra.forEach(v => {
-      const hue = Math.round((v.n * 47) % 360);
+      const hue = Math.round((v.pos * 47) % 360);
       const fill = 'hsl(' + hue + ' 62% 52%)';
       const stroke = 'hsl(' + hue + ' 62% 36%)';
       const bg = 'hsl(' + hue + ' 62% 94%)';
       const text = 'hsl(' + hue + ' 62% 28%)';
-      const k = 'l' + v.n;
+      const k = 'l' + v.pos;
       css += '.bulb-cell.' + k + '.on{background:' + fill + ';border-color:' + stroke + ';}';
       css += '.mini-bulb.' + k + '.on{background:' + fill + ';border-color:' + stroke + ';}';
       css += '.mini-chip.' + k + '.state-on{background:' + bg + ';border-color:' + fill + ';color:' + text + ';}';
@@ -254,7 +335,8 @@
     return parts.join(' OR ');
   }
   function exprData(list) {
-    return list.map(t => ({ varId: t.varId, value: stateLabel(varById(t.varId), t.state), state: t.state, conn: t.conn || null }));
+    // varId is the INTERNAL attribute (attrN); displayedAs is the label the participant saw
+    return list.map(t => { const v = varById(t.varId); return { varId: t.varId, displayedAs: v.label, value: stateLabel(v, t.state), state: t.state, conn: t.conn || null }; });
   }
 
   // the queries the participant built (what they put in each blank)
@@ -278,7 +360,9 @@
       return {
         participantId: PARTICIPANT_ID,
         treatment: Object.assign(
-          { seed: CFG.seed, nAttributes: N_ATTR, generation: GEN ? GEN.mode : 'logistic' },
+          { model: CFG.model, distribution: CFG.distribution, nAttributes: N_ATTR, nCandidates: N_CAND, seed: CFG.seed,
+            labelOrder: LABEL_ORDER, displayOrder: DISPLAY_ORDER, generation: GEN ? GEN.mode : 'logistic' },
+          (GEN && GEN.mode === 'Ppi') ? { relevantIndices: GEN.relevantIndices, piIrrelevanceOK: GEN.piIrrelevanceOK } : {},
           (GEN && GEN.mode === 'joint') ? { relevantIndices: GEN.relevantIndices, irrelevantRate: GEN.irrelevantRate } : {}
         ),
         numResults: history.length,
@@ -292,6 +376,7 @@
       exportedAt: new Date().toISOString(),
       elapsedMs: Date.now() - SESSION_START,
       dataModel: Object.assign({
+        model: CFG.model, distribution: CFG.distribution, labelOrder: LABEL_ORDER, displayOrder: DISPLAY_ORDER,
         nCandidates: N_CAND, seed: CFG.seed, nAttributes: N_ATTR,
         outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord
       }, GEN || {}),
@@ -310,6 +395,8 @@
     try {
       const qe = window.Qualtrics && Qualtrics.SurveyEngine;
       if (qe && typeof qe.setJSEmbeddedData === 'function') qe.setJSEmbeddedData('probabilityMachineData', json);
+      // also expose sigma as its own embedded field (handy for analysis / piping)
+      if (qe && typeof qe.setEmbeddedData === 'function') qe.setEmbeddedData('label_order', LABEL_ORDER.join(','));
     } catch (_) {}
     // Also stash the recap in the browser so a later page (the choice task) can
     // show what this participant found, regardless of embedded-data saving.
@@ -317,10 +404,12 @@
       localStorage.setItem('candidateExplorer.part1', JSON.stringify({
         participantId: PARTICIPANT_ID,
         results: resultsList(),
+        model: CFG.model, distribution: CFG.distribution,
         nAttributes: N_ATTR,
-        attributeLabels: VARS.filter(v => v.kind === 'attribute').map(v => v.label),
+        labelOrder: LABEL_ORDER,                       // sigma, so Part 2 displays attributes identically
+        attributeLabels: VARS.filter(v => v.kind === 'attribute').map(v => v.label),   // indexed by INTERNAL attribute
         outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord,
-        relevantIndices: (GEN && GEN.mode === 'joint') ? GEN.relevantIndices : null,
+        relevantIndices: GEN ? (GEN.relevantIndices || null) : null,
         irrelevantRate: (GEN && GEN.mode === 'joint') ? GEN.irrelevantRate : null
       }));
     } catch (_) {}
@@ -343,13 +432,13 @@
     if (v.kind === 'outcome') {
       return '<span class="mini-chip kind-sound state-' + state + '">' + OUTCOME_SVG + stateLabel(v, state) + '</span>';
     }
-    return '<span class="mini-chip l' + v.n + ' state-' + state + '"><span class="mini-bulb l' + v.n + ' ' + state + '"></span>A' + v.n + ' ' + stateLabel(v, state) + '</span>';
+    return '<span class="mini-chip l' + v.pos + ' state-' + state + '"><span class="mini-bulb l' + v.pos + ' ' + state + '"></span>A' + v.pos + ' ' + stateLabel(v, state) + '</span>';
   }
   function variableChip(v) {
     if (v.kind === 'outcome') {
       return '<span class="mini-chip kind-var sound">' + OUTCOME_SVG + v.label + '</span>';
     }
-    return '<span class="mini-chip kind-var l' + v.n + '"><span class="mini-bulb l' + v.n + ' on"></span>' + v.label + '</span>';
+    return '<span class="mini-chip kind-var l' + v.pos + '"><span class="mini-bulb l' + v.pos + ' on"></span>' + v.label + '</span>';
   }
 
   // ===== query builder =====
@@ -459,7 +548,7 @@
   // draggable chip tray
   function renderPalette() {
     const pal = document.getElementById('palette');
-    pal.innerHTML = VARS.map(v =>
+    pal.innerHTML = VARS_DISPLAY.map(v =>
       '<span class="qb-pal-group">'
       + ['on', 'off'].map(state =>
           '<span class="qb-chip pal-chip" draggable="true" data-var="' + v.id + '" data-state="' + state + '">'
@@ -523,7 +612,7 @@
     const searchHTML = VARS.length > 6
       ? '<input type="text" class="qb-search" placeholder="filter…">'
       : '';
-    const rows = VARS.map(v =>
+    const rows = VARS_DISPLAY.map(v =>
       '<div class="qb-opt" data-label="' + v.label.toLowerCase() + '">'
       + '<span class="qb-opt-label">' + variableChip(v) + '</span>'
       + '<span class="qb-opt-actions">'
@@ -779,7 +868,7 @@
   renderDatabase();
   renderAll();
   renderHistory();
-  logEvent('session_start', { participantId: PARTICIPANT_ID });
+  logEvent('session_start', { participantId: PARTICIPANT_ID, model: CFG.model, distribution: CFG.distribution, labelOrder: LABEL_ORDER });
 })();
 
   }
