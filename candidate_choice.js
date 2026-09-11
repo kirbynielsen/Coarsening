@@ -131,7 +131,7 @@
     if (!host) return;
     if (!CFG.showRecap) { host.style.display = 'none'; return; }
     const results = (PART1 && PART1.results) || [];
-    if (!results.length) { host.innerHTML = '<div class="recap-head">What you found</div><div class="recap-empty">No earlier queries were found for this session.</div>'; return; }
+    if (!results.length) { host.innerHTML = '<div class="recap-head">The statistics you requested</div><div class="recap-empty">No earlier queries were found for this session.</div>'; return; }
     const rows = results.map(function (r) {
       const cond = (r.conditions && r.conditions.length) ? exprHTML(r.conditions) : '<span class="spec-empty">all candidates</span>';
       var answer;
@@ -143,7 +143,7 @@
       }
       return '<div class="recap-item"><span class="hist-among">Among candidates with</span> ' + cond + ' <span class="hist-arrow">&rarr;</span> ' + answer + '</div>';
     }).join('');
-    host.innerHTML = '<div class="recap-head">What you found</div>' + rows;
+    host.innerHTML = '<div class="recap-head">The statistics you requested</div>' + rows;
   }
 
   // ================= trials =================

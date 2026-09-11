@@ -76,7 +76,7 @@
     if (!host) return;
     var results = (PART1 && PART1.results) || [];
     if (!results.length) {
-      host.innerHTML = '<div class="recap-head">Your previous searches:</div><div class="recap-empty">No earlier searches were found.</div>';
+      host.innerHTML = '<div class="recap-head">The statistics you requested</div><div class="recap-empty">No earlier searches were found.</div>';
       return;
     }
     var rows = results.map(function (r) {
@@ -90,7 +90,7 @@
       }
       return '<div class="recap-item"><span class="hist-among">Among candidates with</span> ' + cond + ' <span class="hist-arrow">&rarr;</span> ' + answer + '</div>';
     }).join('');
-    host.innerHTML = '<div class="recap-head">Your previous searches:</div>' + rows;
+    host.innerHTML = '<div class="recap-head">The statistics you requested</div>' + rows;
   }
   render();
 })();
