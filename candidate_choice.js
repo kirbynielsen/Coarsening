@@ -20,6 +20,7 @@
     // candidates in every trial; c is drawn per participant unless given.
     relevantIndices: [1, 2],    // internal attributes that vary across candidates
     repetitions: 7,             // 6 pairs x 7 = 42 choices
+    controls: 3,                // control rounds: both candidates identical (3 distinct relevant profiles, drawn at random); mixed into the sequence
     constant: null,             // c: 0/1 per attribute NOT in relevantIndices, in ascending attribute order; null = random per participant
     randomizeOrder: true,       // shuffle the 42 trials per participant
     randomizeSides: true,       // left/right drawn independently for every trial
@@ -197,11 +198,20 @@
     return out;
   }
   function hl(key) { return key.replace(/1/g, 'H').replace(/0/g, 'L'); }
+  const CONTROL_KEYS = [];
   function generateTrials() {
     const keys = relKeys(); const out = []; const reps = Math.max(1, CFG.repetitions | 0);
     for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
       const pairId = hl(keys[i]) + '-' + hl(keys[j]);
-      for (let r = 1; r <= reps; r++) out.push({ id: pairId + '#' + r, pairId: pairId, rep: r, a: keys[i], b: keys[j], left: fullProfile(keys[i]), right: fullProfile(keys[j]), swapped: false });
+      for (let r = 1; r <= reps; r++) out.push({ id: pairId + '#' + r, pairId: pairId, rep: r, a: keys[i], b: keys[j], left: fullProfile(keys[i]), right: fullProfile(keys[j]), swapped: false, control: false });
+    }
+    // control rounds: identical candidates; distinct profiles drawn at random (irrelevant attributes = c, as everywhere)
+    const nCtrl = Math.max(0, Math.min(keys.length, CFG.controls | 0));
+    const pool = keys.slice();
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    for (let c = 0; c < nCtrl; c++) {
+      const k = pool[c]; CONTROL_KEYS.push(k);
+      out.push({ id: 'CTRL-' + hl(k), pairId: 'CTRL-' + hl(k), rep: 1, a: k, b: k, left: fullProfile(k), right: fullProfile(k), swapped: false, control: true });
     }
     return out;
   }
@@ -274,7 +284,8 @@
       const chosenKey = which === 'equal' ? 'equal' : (which === 'left' ? (t.swapped ? t.b : t.a) : (t.swapped ? t.a : t.b));
       choices.push({
         trialId: t.id,
-        pairId: t.pairId,                      // e.g. "HH-HL" (relevant attributes, internal order)
+        pairId: t.pairId,                      // e.g. "HH-HL" (relevant attributes, internal order); "CTRL-HL" for a control round
+        control: t.control === true,           // both candidates identical
         rep: t.rep,                            // 1..repetitions
         order: current + 1,                    // position in this participant's sequence
         choice: which,                         // 'left' | 'right' | 'equal'
@@ -308,6 +319,8 @@
         irrelevantIndices: IRREL,
         constant: CONST,                       // c, aligned with irrelevantIndices
         repetitions: CFG.trials.length ? null : (CFG.repetitions | 0),
+        controls: CFG.trials.length ? 0 : CONTROL_KEYS.length,
+        controlProfiles: CONTROL_KEYS.slice(),   // relevant keys used for the identical-candidate rounds
         randomizeOrder: !!CFG.randomizeOrder, randomizeSides: !!CFG.randomizeSides, showTie: CFG.showTie !== false
       },
       recapOrder: ((PART1 && PART1.results) || []).map(function (r) { return r.queryNum; }),
