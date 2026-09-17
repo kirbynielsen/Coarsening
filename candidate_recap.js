@@ -9,8 +9,7 @@
   function loadPart1() {
     var raw = null;
     try { var el = document.getElementById('pm-part1-data'); if (el && el.textContent && el.textContent.trim()) raw = el.textContent.trim(); } catch (_) {}
-    if (!raw) { try { raw = localStorage.getItem('candidateExplorer.part1'); } catch (_) {} }
-    if (!raw) return null;
+    if (!raw) return null;                       // no localStorage fallback (see candidate_choice.js)
     var d; try { d = JSON.parse(raw); } catch (_) { return null; }
     var t = d.treatment || {};
     return {
@@ -25,6 +24,21 @@
     };
   }
   var PART1 = loadPart1();
+  // If the choice page's data is piped in too (<div id="pm-part2-data">), show the
+  // statistics in the order the participant left them there (recapOrder), so the list
+  // matches what they arranged during the Main Task.
+  (function applyPart2Order() {
+    if (!PART1 || !PART1.results || !PART1.results.length) return;
+    var el = document.getElementById('pm-part2-data'), d2 = null;
+    try { if (el && el.textContent && el.textContent.trim()) d2 = JSON.parse(el.textContent.trim()); } catch (_) { d2 = null; }
+    var order = d2 && Array.isArray(d2.recapOrder) ? d2.recapOrder.map(Number) : null;
+    if (!order || !order.length) return;
+    var byNum = {}; PART1.results.forEach(function (r) { byNum[r.queryNum] = r; });
+    var sorted = [], seen = {};
+    order.forEach(function (n) { if (byNum[n] && !seen[n]) { sorted.push(byNum[n]); seen[n] = true; } });
+    PART1.results.forEach(function (r) { if (!seen[r.queryNum]) sorted.push(r); });   // anything not in the order list keeps its place at the end
+    PART1.results = sorted;
+  })();
   var N_ATTR = Math.max(1, ((PART1 && PART1.nAttributes) || 2) | 0);
   var ATTR_LABELS = (PART1 && PART1.attributeLabels) || null;
   var OUTCOME_LABEL = (PART1 && PART1.outcomeLabel) || 'Outcome';

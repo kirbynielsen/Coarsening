@@ -45,12 +45,15 @@
   // Part 1's data can arrive two ways: piped forward from the query question into a
   // hidden <div id="pm-part1-data"> (reliable, survives across pages), or via
   // localStorage (same-browser fallback). Handle either JSON shape.
+  var PART1_STATUS = 'missing';
   function loadPart1() {
     var raw = null;
     try { var el = document.getElementById('pm-part1-data'); if (el && el.textContent && el.textContent.trim()) raw = el.textContent.trim(); } catch (_) {}
-    if (!raw) { try { raw = localStorage.getItem('candidateExplorer.part1'); } catch (_) {} }
-    if (!raw) return null;
-    var d; try { d = JSON.parse(raw); } catch (_) { return null; }
+    // No localStorage fallback: inside the survey Part 1 must come from the pipe, so a
+    // failed pipe is recorded (part1Loaded: false) instead of masked by stale data.
+    if (!raw) { PART1_STATUS = 'missing'; return null; }
+    var d; try { d = JSON.parse(raw); } catch (_) { PART1_STATUS = 'unparseable'; return null; }
+    PART1_STATUS = 'ok';
     var t = d.treatment || {};
     return {
       participantId: d.participantId || null,
@@ -330,6 +333,8 @@
         controlProfiles: CONTROL_KEYS.slice(),   // relevant keys used for the identical-candidate rounds
         randomizeOrder: !!CFG.randomizeOrder, randomizeSides: !!CFG.randomizeSides, showTie: CFG.showTie !== false
       },
+      part1Loaded: PART1_STATUS === 'ok',      // false = the Part 1 pipe was empty or unparseable (see part1Status)
+      part1Status: PART1_STATUS,
       recapOrder: ((PART1 && PART1.results) || []).map(function (r) { return r.queryNum; }),
       recapMoves: recapMoves,
       numTrials: trials.length,
@@ -338,7 +343,7 @@
     };
   }
   function save() {
-    const json = JSON.stringify(currentData());
+    const json = JSON.stringify(currentData()).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');   // HTML-safe (this text is piped into a <div> on the advice page)
     const out = document.getElementById('pm-choice-data'); if (out) out.value = json;
     try { localStorage.setItem('candidateExplorer.choices', json); } catch (_) {}
     // Best-effort live push; authoritative save is in the question's addOnPageSubmit.

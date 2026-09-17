@@ -438,7 +438,10 @@
   }
 
   function syncData() {
-    const json = JSON.stringify(currentData());
+    // HTML-safe JSON: the survey pipes this text into a <div> on later pages, where the
+    // browser parses it as HTML first. Escaping <, > and & as \uXXXX keeps it valid JSON
+    // (JSON.parse restores the characters) and immune to that parsing.
+    const json = JSON.stringify(currentData()).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     const out = document.getElementById('pm-data');
     if (out) out.value = json;
     // Best-effort live push to Qualtrics (only the static method, if present).
