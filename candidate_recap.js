@@ -16,6 +16,7 @@
       results: d.results || [],
       notes: d.notes || null,
       labelOrder: d.labelOrder || t.labelOrder || null,
+      valueFlip: (d.valueFlip != null) ? d.valueFlip : ((t.valueFlip != null) ? t.valueFlip : null),
       nAttributes: d.nAttributes || t.nAttributes || null,
       attributeLabels: d.attributeLabels || null,
       outcomeLabel: d.outcomeLabel || t.outcomeLabel || 'Outcome',
@@ -53,6 +54,8 @@
     if (!valid) { lo = []; for (var i = 0; i < N_ATTR; i++) lo.push(i); }
     return lo;
   })();
+  var VALUE_FLIP = (PART1 && (PART1.valueFlip === 1 || PART1.valueFlip === '1')) ? 1 : 0;   // display-only, from Part 1
+  function dispState(v, state) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? (state === 'on' ? 'off' : 'on') : state; }
   var VARS = [];
   for (var n = 1; n <= N_ATTR; n++) {
     var pos = LABEL_ORDER[n - 1] + 1;
@@ -60,12 +63,13 @@
   }
   VARS.push({ id: 'success', kind: 'outcome', label: OUTCOME_LABEL });
   function varById(id) { for (var i = 0; i < VARS.length; i++) if (VARS[i].id === id) return VARS[i]; return null; }
-  function stateLabel(v, state) { var hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS : FAIL) : (hi ? 'high' : 'low'); }
+  function stateLabel(v, state) { var hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS : FAIL) : (dispState(v, state) === 'on' ? 'high' : 'low'); }
   var OUTCOME_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
   function valueChip(v, state) {
     if (!v) return '';
     if (v.kind === 'outcome') return '<span class="mini-chip kind-sound state-' + state + '">' + (state === 'on' ? OUTCOME_SVG : '') + stateLabel(v, state) + '</span>';
-    return '<span class="mini-chip l' + v.pos + ' state-' + state + '"><span class="mini-bulb l' + v.pos + ' ' + state + '"></span>A' + v.pos + ' <span class="hilo">' + stateLabel(v, state) + '</span></span>';
+    var ds = dispState(v, state);
+    return '<span class="mini-chip l' + v.pos + ' state-' + ds + '"><span class="mini-bulb l' + v.pos + ' ' + ds + '"></span>A' + v.pos + ' <span class="hilo">' + stateLabel(v, state) + '</span></span>';
   }
   function exprHTML(list) { return (list || []).map(function (e, i) { return (i > 0 ? '<span class="expr-conn">' + (e.conn === 'or' ? 'or' : 'and') + '</span>' : '') + valueChip(varById(e.varId), e.state); }).join(''); }
 

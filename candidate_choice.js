@@ -62,6 +62,7 @@
       model: d.model || t.model || null,
       distribution: d.distribution || t.distribution || null,
       labelOrder: d.labelOrder || t.labelOrder || null,
+      valueFlip: (d.valueFlip != null) ? d.valueFlip : ((t.valueFlip != null) ? t.valueFlip : null),
       nAttributes: d.nAttributes || t.nAttributes || null,
       attributeLabels: d.attributeLabels || null,
       outcomeLabel: d.outcomeLabel || t.outcomeLabel || null,
@@ -95,6 +96,9 @@
     return lo;
   })();
   const DISPLAY_ORDER = []; LABEL_ORDER.forEach((pos, i) => { DISPLAY_ORDER[pos] = i + 1; });
+  // value-label flip from Part 1 (1 = internal "on" is displayed as "low"); display-only, like sigma
+  const VALUE_FLIP = (function () { const f = (CFG.valueFlip != null) ? CFG.valueFlip : (PART1 ? PART1.valueFlip : null); return (f === 1 || f === '1') ? 1 : 0; })();
+  function dispState(v, state) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? (state === 'on' ? 'off' : 'on') : state; }
   const VARS = [];
   for (let n = 1; n <= N_ATTR; n++) {
     const pos = LABEL_ORDER[n - 1] + 1;
@@ -103,12 +107,13 @@
   VARS.push({ id: 'success', kind: 'outcome', label: OUTCOME_LABEL });
   const ATTRS_DISPLAY = VARS.filter(v => v.kind === 'attribute').sort((a, b) => a.pos - b.pos);
   function varById(id) { for (let i = 0; i < VARS.length; i++) if (VARS[i].id === id) return VARS[i]; return null; }
-  function stateLabel(v, state) { const hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS_WORD : FAIL_WORD) : (hi ? 'high' : 'low'); }
+  function stateLabel(v, state) { const hi = state === 'on'; return v.kind === 'outcome' ? (hi ? SUCCESS_WORD : FAIL_WORD) : (dispState(v, state) === 'on' ? 'high' : 'low'); }
   const OUTCOME_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
   function valueChip(v, state) {
     if (!v) return '';
     if (v.kind === 'outcome') return '<span class="mini-chip kind-sound state-' + state + '">' + (state === 'on' ? OUTCOME_SVG : '') + stateLabel(v, state) + '</span>';
-    return '<span class="mini-chip l' + v.pos + ' state-' + state + '"><span class="mini-bulb l' + v.pos + ' ' + state + '"></span>A' + v.pos + ' <span class="hilo">' + stateLabel(v, state) + '</span></span>';
+    const ds = dispState(v, state);
+    return '<span class="mini-chip l' + v.pos + ' state-' + ds + '"><span class="mini-bulb l' + v.pos + ' ' + ds + '"></span>A' + v.pos + ' <span class="hilo">' + stateLabel(v, state) + '</span></span>';
   }
   function exprHTML(list) { return (list || []).map((e, i) => (i > 0 ? '<span class="expr-conn">' + (e.conn === 'or' ? 'or' : 'and') + '</span>' : '') + valueChip(varById(e.varId), e.state)).join(''); }
 
@@ -247,7 +252,7 @@
   }
 
   // displayed words keyed by the label the participant saw (in display order)
-  function profileWords(profile) { const o = {}; ATTRS_DISPLAY.forEach(function (v) { o[v.label] = profile[v.n - 1] ? 'high' : 'low'; }); return o; }
+  function profileWords(profile) { const o = {}; ATTRS_DISPLAY.forEach(function (v) { o[v.label] = stateLabel(v, profile[v.n - 1] ? 'on' : 'off'); }); return o; }   // words as displayed (flip applied)
   // internal 0/1 vector, index = internal attribute - 1
   function profileBits(profile) { return profile.map(function (b) { return b ? 1 : 0; }); }
   function candidateCardHTML(profile, side, label) {
@@ -305,7 +310,8 @@
         candidateA: profileWords(t.left),      // as displayed (labels under sigma), left
         candidateB: profileWords(t.right),     // as displayed, right
         swapped: t.swapped,                    // true = pair's first profile was shown on the right
-        rtMs: rt
+        rtMs: rt,                              // ms from the trial being shown to the click
+        tMs: Date.now() - T0                   // ms from page load to the click
       });
       save();
       current++;
@@ -325,6 +331,7 @@
         nAttributes: N_ATTR,
         labelOrder: LABEL_ORDER,               // sigma (display positions of internal attributes)
         displayOrder: DISPLAY_ORDER,           // internal attribute shown in each position
+        valueFlip: VALUE_FLIP,                 // 1 = internal "on" displayed as "low" (from Part 1)
         relevantIndices: REL,
         irrelevantIndices: IRREL,
         constant: CONST,                       // c, aligned with irrelevantIndices
