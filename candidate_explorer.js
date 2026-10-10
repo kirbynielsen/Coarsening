@@ -41,11 +41,12 @@
     // uses the internal index; the displayed label is "Attribute <position>".
     labelOrder: null,
     permuteLabels: true,     // false = identity order (for testing)
-    // -- value-label flip --
-    // valueFlip = 1: every attribute's internal 1 ("on") is DISPLAYED as "low" and 0 as "high"
-    // (words, chip styling and table dots all follow the displayed word). 0: shown as is.
-    // null = one fair coin per participant. Display-only: varIds, states, P/pi and every
-    // computation stay internal; the flip is recorded as treatment.valueFlip.
+    // -- value-label flips (one independent fair coin PER ATTRIBUTE) --
+    // valueFlip = array indexed by INTERNAL attribute (valueFlip[n-1] for attribute n):
+    // 1 = that attribute's internal 1 ("on") is DISPLAYED as "low" and 0 as "high"
+    // (words, chip styling, table dots and tray order all follow the displayed word);
+    // 0 = shown as is. null = draw each coin independently. Display-only: varIds, states,
+    // P/pi and every computation stay internal; the flips are recorded as treatment.valueFlip.
     valueFlip: null,
     flipValues: true,        // false = never flip (quiz mode, testing)
     // -- quiz mode (comprehension check) --
@@ -298,14 +299,22 @@
   })();
   // DISPLAY_ORDER[j] = internal attribute shown in zero-based position j (sigma^-1)
   const DISPLAY_ORDER = []; LABEL_ORDER.forEach((pos, i) => { DISPLAY_ORDER[pos] = i + 1; });
-  // ===== value-label flip (one coin per participant; display-only) =====
+  // ===== value-label flips (one independent coin per attribute; display-only) =====
+  // VALUE_FLIP[n-1] is the flip for INTERNAL attribute n (1 = its "on" is displayed as "low").
   const VALUE_FLIP = (function () {
-    if (CFG.valueFlip === 0 || CFG.valueFlip === 1 || CFG.valueFlip === '0' || CFG.valueFlip === '1') return Number(CFG.valueFlip);
-    if (CFG.flipValues === false) return 0;
-    return Math.random() < 0.5 ? 1 : 0;
+    const out = [];
+    const given = Array.isArray(CFG.valueFlip) ? CFG.valueFlip : null;
+    for (let i = 0; i < N_ATTR; i++) {
+      if (given && (given[i] === 0 || given[i] === 1 || given[i] === '0' || given[i] === '1')) out.push(Number(given[i]));
+      else if (CFG.flipValues === false || (!given && (CFG.valueFlip === 0 || CFG.valueFlip === '0'))) out.push(0);
+      else if (!given && (CFG.valueFlip === 1 || CFG.valueFlip === '1')) out.push(1);
+      else out.push(Math.random() < 0.5 ? 1 : 0);
+    }
+    return out;
   })();
-  // displayed state of an attribute term: 'on' is shown as "high" unless flipped
-  function dispState(v, state) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? (state === 'on' ? 'off' : 'on') : state; }
+  function flipped(v) { return v.kind === 'attribute' && VALUE_FLIP[v.n - 1] === 1; }
+  // displayed state of an attribute term: 'on' is shown as "high" unless that attribute is flipped
+  function dispState(v, state) { return flipped(v) ? (state === 'on' ? 'off' : 'on') : state; }
   function attrWord(v, state) { return dispState(v, state) === 'on' ? 'high' : 'low'; }
 
   // ===== state =====
@@ -380,6 +389,17 @@
     } catch (_) { return 'anon-' + Math.random().toString(36).slice(2, 10); }
   })();
   const eventLog = [];
+  // "no statistics" warning on Next (shown by the survey page; see the Data Search question's JS):
+  // how often it was shown, how often the participant went back, and whether they proceeded anyway
+  const EMPTY_WARN = { shown: 0, wentBack: 0, proceeded: false };
+  window.pmEmptyWarning = function (kind) {
+    if (kind === 'shown') EMPTY_WARN.shown++;
+    else if (kind === 'back') EMPTY_WARN.wentBack++;
+    else if (kind === 'proceed') EMPTY_WARN.proceeded = true;
+    logEvent('empty_warning_' + kind, { numResults: history.length });
+    syncData();
+  };
+  window.pmSavedCount = function () { return history.length; };
 
   // human-readable expression, e.g. "(Attribute 1=high AND Attribute 2=high) OR Attribute 3=low"
   function exprString(list) {
@@ -438,6 +458,7 @@
         results: resultsList(),
         deletedResults: resultsList(deletedHistory),
         datasetScroll: scrollSummary(),
+        emptyWarning: EMPTY_WARN,
         notes: { text: NOTES.text, chars: NOTES.text.length, edits: NOTES.edits, lastEditedMs: NOTES.lastEditedMs },
         events: eventLog                      // every action with t = ms since the page loaded (see logEvent)
       };
@@ -457,6 +478,7 @@
       savedResults: resultsList(),
       deletedResults: resultsList(deletedHistory),
       datasetScroll: scrollSummary(),
+      emptyWarning: EMPTY_WARN,
       notes: { text: NOTES.text, chars: NOTES.text.length, edits: NOTES.edits, lastEditedMs: NOTES.lastEditedMs }
     };
   }
@@ -488,7 +510,7 @@
         model: CFG.model, distribution: CFG.distribution,
         nAttributes: N_ATTR,
         labelOrder: LABEL_ORDER,                       // sigma, so Part 2 displays attributes identically
-        valueFlip: VALUE_FLIP,                         // value-label flip, likewise
+        valueFlip: VALUE_FLIP,                         // per-attribute value-label flips (by internal attribute), likewise
         attributeLabels: VARS.filter(v => v.kind === 'attribute').map(v => v.label),   // indexed by INTERNAL attribute
         outcomeLabel: CFG.outcomeLabel, successWord: CFG.successWord, failWord: CFG.failWord,
         relevantIndices: GEN ? (GEN.relevantIndices || null) : null,
@@ -517,7 +539,7 @@
     return '<span class="mini-chip l' + v.pos + ' state-' + ds + '"><span class="mini-bulb l' + v.pos + ' ' + ds + '"></span>A' + v.pos + ' <span class="hilo">' + stateLabel(v, state) + '</span></span>';
   }
   // internal states in the order the participant sees them ("high" chip / button first)
-  function stateOrder(v) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? ['off', 'on'] : ['on', 'off']; }
+  function stateOrder(v) { return flipped(v) ? ['off', 'on'] : ['on', 'off']; }
   function variableChip(v) {
     if (v.kind === 'outcome') {
       return '<span class="mini-chip kind-var sound">' + OUTCOME_SVG + v.label + '</span>';
@@ -949,7 +971,8 @@
     return list.map(t => { const v = varById(t.varId); return (v.kind === 'outcome' ? 'outcome' : 'attr' + v.pos) + '=' + t.state; }).sort();
   }
   function quizExpected(spec) {
-    return (spec || []).map(t => t.outcome !== undefined ? 'outcome=' + (/^un/i.test(String(t.outcome)) ? 'off' : 'on') : 'attr' + (t.attr | 0) + '=' + (/^h/i.test(String(t.value)) ? 'on' : 'off')).sort();
+    // attribute terms beyond this participant's attribute count are ignored (one spec serves both arms)
+    return (spec || []).filter(t => t.outcome !== undefined || (t.attr | 0) <= N_ATTR).map(t => t.outcome !== undefined ? 'outcome=' + (/^un/i.test(String(t.outcome)) ? 'off' : 'on') : 'attr' + (t.attr | 0) + '=' + (/^h/i.test(String(t.value)) ? 'on' : 'off')).sort();
   }
   function quizSubmit() {
     if (QUIZ.correct || targets.length === 0) return;

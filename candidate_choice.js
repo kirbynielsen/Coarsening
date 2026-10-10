@@ -96,9 +96,19 @@
     return lo;
   })();
   const DISPLAY_ORDER = []; LABEL_ORDER.forEach((pos, i) => { DISPLAY_ORDER[pos] = i + 1; });
-  // value-label flip from Part 1 (1 = internal "on" is displayed as "low"); display-only, like sigma
-  const VALUE_FLIP = (function () { const f = (CFG.valueFlip != null) ? CFG.valueFlip : (PART1 ? PART1.valueFlip : null); return (f === 1 || f === '1') ? 1 : 0; })();
-  function dispState(v, state) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? (state === 'on' ? 'off' : 'on') : state; }
+  // per-attribute value-label flips from Part 1, indexed by INTERNAL attribute
+  // (VALUE_FLIP[n-1] = 1: attribute n's internal "on" is displayed as "low"); display-only, like sigma
+  const VALUE_FLIP = (function () {
+    const f = (CFG.valueFlip != null) ? CFG.valueFlip : (PART1 ? PART1.valueFlip : null);
+    const out = [];
+    for (let i = 0; i < N_ATTR; i++) {
+      const b = Array.isArray(f) ? f[i] : f;               // a scalar (legacy) applies to every attribute
+      out.push((b === 1 || b === '1') ? 1 : 0);
+    }
+    return out;
+  })();
+  function flipped(v) { return v.kind === 'attribute' && VALUE_FLIP[v.n - 1] === 1; }
+  function dispState(v, state) { return flipped(v) ? (state === 'on' ? 'off' : 'on') : state; }
   const VARS = [];
   for (let n = 1; n <= N_ATTR; n++) {
     const pos = LABEL_ORDER[n - 1] + 1;
@@ -331,7 +341,7 @@
         nAttributes: N_ATTR,
         labelOrder: LABEL_ORDER,               // sigma (display positions of internal attributes)
         displayOrder: DISPLAY_ORDER,           // internal attribute shown in each position
-        valueFlip: VALUE_FLIP,                 // 1 = internal "on" displayed as "low" (from Part 1)
+        valueFlip: VALUE_FLIP,                 // per internal attribute: 1 = its "on" displayed as "low" (from Part 1)
         relevantIndices: REL,
         irrelevantIndices: IRREL,
         constant: CONST,                       // c, aligned with irrelevantIndices

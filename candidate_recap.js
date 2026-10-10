@@ -54,8 +54,14 @@
     if (!valid) { lo = []; for (var i = 0; i < N_ATTR; i++) lo.push(i); }
     return lo;
   })();
-  var VALUE_FLIP = (PART1 && (PART1.valueFlip === 1 || PART1.valueFlip === '1')) ? 1 : 0;   // display-only, from Part 1
-  function dispState(v, state) { return (v.kind === 'attribute' && VALUE_FLIP === 1) ? (state === 'on' ? 'off' : 'on') : state; }
+  // per-attribute value-label flips from Part 1, indexed by INTERNAL attribute (display-only)
+  var VALUE_FLIP = (function () {
+    var f = PART1 ? PART1.valueFlip : null, out = [];
+    for (var i = 0; i < N_ATTR; i++) { var b = Array.isArray(f) ? f[i] : f; out.push((b === 1 || b === '1') ? 1 : 0); }
+    return out;
+  })();
+  function flipped(v) { return v.kind === 'attribute' && VALUE_FLIP[v.n - 1] === 1; }
+  function dispState(v, state) { return flipped(v) ? (state === 'on' ? 'off' : 'on') : state; }
   var VARS = [];
   for (var n = 1; n <= N_ATTR; n++) {
     var pos = LABEL_ORDER[n - 1] + 1;
