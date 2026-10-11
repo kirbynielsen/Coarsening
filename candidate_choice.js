@@ -278,7 +278,7 @@
     const host = document.getElementById('choice');
     if (!host) return;
     if (!trials.length) { host.innerHTML = '<div class="cc-warn">No choice trials were configured.</div>'; signalComplete(); return; }
-    if (current >= trials.length) { host.innerHTML = '<div class="cc-done">&#10003; All done &mdash; you can continue below.</div>'; save(); signalComplete(); return; }
+    if (current >= trials.length) { host.innerHTML = '<div class="cc-done">All done &mdash; you can continue below.</div>'; save(); signalComplete(); return; }
     const t = trials[current];
     host.innerHTML =
       '<div class="cc-progress">Choice ' + (current + 1) + ' of ' + trials.length + '</div>' +
