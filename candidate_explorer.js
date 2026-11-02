@@ -439,14 +439,69 @@
     const total = displayOrder.length;
     return { scrollEvents: SCROLL.scrollEvents, maxRowReached: SCROLL.maxRowReached, rowsTotal: total, maxFraction: total ? Number((SCROLL.maxRowReached / total).toFixed(4)) : null, maxScrollTopPx: SCROLL.maxScrollTopPx, firstScrollMs: SCROLL.firstScrollMs };
   }
-  function currentData() {
-    // COMPACT (default): just the fields participants fill in — no timestamps,
-    // no per-drag event stream. Keeps the stored value small.
-    if (CFG.quiz) {
-      return { participantId: PARTICIPANT_ID, quiz: true, attempts: QUIZ.attempts, correct: QUIZ.correct, submissions: QUIZ.submissions, events: eventLog };
+  // ===== compact storage (schema v2) =====
+  // Qualtrics stores at most 20,000 characters per text-entry answer and refuses to
+  // submit the page beyond that, so the saved record uses shorthand: attributes by
+  // INTERNAL index (0 = outcome), states as 1/0, connectors as 'a'/'o', events as short
+  // arrays. Everything displayed (labels, high/low words, text) is reconstructed from
+  // tr.lo (labelOrder) and tr.vf (valueFlip). verboseData() is the old long format and
+  // is what the decoders must reproduce exactly; getProbabilityMachineVerbose() exposes
+  // it for testing only.
+  const SCHEMA = 2, STORE_LIMIT = 19000;
+  function encTerm(t) { const v = varById(t.varId); const o = [v.kind === 'outcome' ? 0 : v.n, t.state === 'on' ? 1 : 0]; if (t.conn) o.push(t.conn === 'or' ? 'o' : 'a'); return o; }
+  function encQuery(h, deleted) {
+    const o = [h.queryNum, h.conditions.map(encTerm), h.targets.map(encTerm), h.pct === null ? null : Number(h.pct.toFixed(2)), h.n, isImpossible(h.conditions) ? 1 : 0];
+    if (deleted) o.push(h.deletedAt === undefined ? null : h.deletedAt);
+    return o;
+  }
+  const EV_CODE = { session_start: 'ss', add_chip: 'ac', move_chip: 'mc', remove_chip: 'rc', toggle_connector: 'tc', toggle_pending: 'tp', show_result: 'sr', delete_result: 'dr', reorder_result: 'rr', scroll: 'sc', notes_edit: 'ne', reset_builder: 'rb', empty_warning_shown: 'ws', empty_warning_back: 'wb', empty_warning_proceed: 'wp', quiz_submit: 'qs' };
+  function zc(z) { return z === 'cond' ? 'c' : (z === 'target' ? 't' : z); }
+  function cc(c) { return c === 'or' ? 'o' : (c === 'and' ? 'a' : ''); }
+  function ai(id) { if (id === 'success') return 0; const v = varById(id); return v ? v.n : id; }
+  function st(x) { return x === 'on' ? 1 : 0; }
+  function encEvent(e) {
+    const c = EV_CODE[e.type]; const o = [e.t, c || e.type];
+    switch (e.type) {
+      case 'session_start': break;
+      case 'add_chip': o.push(zc(e.zone), ai(e.varId), st(e.state), cc(e.conn), e.via === 'drag' ? 'd' : 'm'); break;
+      case 'move_chip': o.push(zc(e.from), zc(e.to), ai(e.varId), st(e.state)); break;
+      case 'remove_chip': o.push(zc(e.zone), ai(e.varId), st(e.state)); break;
+      case 'toggle_connector': o.push(zc(e.zone), e.index, cc(e.to)); break;
+      case 'toggle_pending': o.push(zc(e.zone), cc(e.to)); break;
+      case 'show_result': o.push(e.queryNum, e.percentage, e.nMatchingConditions); break;
+      case 'delete_result': o.push(e.queryNum, e.percentage); break;
+      case 'reorder_result': o.push(e.queryNum, e.fromIndex, e.toIndex); break;
+      case 'scroll': o.push(e.row, e.maxRow); break;
+      case 'notes_edit': o.push(e.chars); break;
+      case 'reset_builder': o.push(e.hadConditions, e.hadTargets); break;
+      case 'empty_warning_shown': case 'empty_warning_back': case 'empty_warning_proceed': o.push(e.numResults); break;
+      case 'quiz_submit': o.push(e.attempt, e.correct ? 1 : 0); break;
+      default: { const d = Object.assign({}, e); delete d.t; delete d.type; o.push(d); }   // unknown type: keep the detail object as is
     }
-    if (CFG.logMode !== 'full') {
-      return {
+    return o;
+  }
+  function compactData(opts) {
+    opts = opts || {};
+    const tr = { m: CFG.model, d: CFG.distribution, k: N_ATTR, nc: N_CAND, s: CFG.seed, lo: LABEL_ORDER, do: DISPLAY_ORDER, vf: VALUE_FLIP, g: GEN ? GEN.mode : 'logistic' };
+    if (GEN && GEN.mode === 'Ppi') { tr.ri = GEN.relevantIndices; tr.ok = GEN.piIrrelevanceOK; }
+    if (GEN && GEN.mode === 'joint') { tr.ri = GEN.relevantIndices; tr.ir = GEN.irrelevantRate; }
+    const out = { v: SCHEMA, id: PARTICIPANT_ID, tr: tr };
+    if (CFG.outcomeLabel !== 'Outcome' || CFG.successWord !== 'successful' || CFG.failWord !== 'unsuccessful') out.w = [CFG.outcomeLabel, CFG.successWord, CFG.failWord];
+    if (CFG.attributeLabels) out.al = VARS.filter(v => v.kind === 'attribute').map(v => v.label);
+    out.nr = history.length;
+    out.r = history.map(h => encQuery(h, false));
+    out.x = deletedHistory.map(h => encQuery(h, true));
+    const sc = scrollSummary(); out.sc = [sc.scrollEvents, sc.maxRowReached, sc.rowsTotal, sc.maxFraction, sc.maxScrollTopPx, sc.firstScrollMs];
+    out.ew = [EMPTY_WARN.shown, EMPTY_WARN.wentBack, EMPTY_WARN.proceeded ? 1 : 0];
+    const noteText = opts.notesMax === undefined ? NOTES.text : NOTES.text.slice(0, opts.notesMax);
+    out.no = [noteText, NOTES.text.length, NOTES.edits, NOTES.lastEditedMs];
+    if (opts.notesMax !== undefined) out.nt = 1;                       // notes text truncated to fit (chars still gives the real length)
+    if (opts.dropEvents) { out.e = []; out.et = 1; out.ne = eventLog.length; }   // events dropped to fit; ne = how many there were
+    else out.e = eventLog.map(encEvent);
+    return out;
+  }
+  function verboseData() {
+    return {
         participantId: PARTICIPANT_ID,
         treatment: Object.assign(
           { model: CFG.model, distribution: CFG.distribution, nAttributes: N_ATTR, nCandidates: N_CAND, seed: CFG.seed,
@@ -462,7 +517,13 @@
         notes: { text: NOTES.text, chars: NOTES.text.length, edits: NOTES.edits, lastEditedMs: NOTES.lastEditedMs },
         events: eventLog                      // every action with t = ms since the page loaded (see logEvent)
       };
+  }
+  window.getProbabilityMachineVerbose = () => JSON.stringify(verboseData());
+  function currentData() {
+    if (CFG.quiz) {
+      return { participantId: PARTICIPANT_ID, quiz: true, attempts: QUIZ.attempts, correct: QUIZ.correct, submissions: QUIZ.submissions, events: eventLog };
     }
+    if (CFG.logMode !== 'full') return compactData();
     // FULL: everything, including the timestamped interaction stream.
     return {
       participantId: PARTICIPANT_ID,
@@ -487,7 +548,17 @@
     // HTML-safe JSON: the survey pipes this text into a <div> on later pages, where the
     // browser parses it as HTML first. Escaping <, > and & as \uXXXX keeps it valid JSON
     // (JSON.parse restores the characters) and immune to that parsing.
-    const json = JSON.stringify(currentData()).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const safe = o => JSON.stringify(o).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    let json = safe(currentData());
+    if (!CFG.quiz && CFG.logMode !== 'full' && json.length > STORE_LIMIT) {
+      // never let the stored answer exceed Qualtrics' limit (the page could not be submitted):
+      // first drop the event stream, then (practically unreachable) shorten the notes text
+      json = safe(compactData({ dropEvents: true }));
+      if (json.length > STORE_LIMIT) {
+        let max = NOTES.text.length;
+        while (json.length > STORE_LIMIT && max > 0) { max = Math.max(0, max - Math.ceil((json.length - STORE_LIMIT) * 1.2)); json = safe(compactData({ dropEvents: true, notesMax: max })); }
+      }
+    }
     const out = document.getElementById('pm-data');
     if (out) out.value = json;
     // Best-effort live push to Qualtrics (only the static method, if present).

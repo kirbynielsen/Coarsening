@@ -45,6 +45,79 @@
   // Part 1's data can arrive two ways: piped forward from the query question into a
   // hidden <div id="pm-part1-data"> (reliable, survives across pages), or via
   // localStorage (same-browser fallback). Handle either JSON shape.
+  // ===== decoder for the compact Part 1 record (schema v2; see candidate_explorer.js compactData) =====
+  // Expands the shorthand back into the long format the rest of this script expects
+  // (treatment / results / deletedResults / notes / events with the same field names as before).
+  function pmDecodePart1(d) {
+    if (!d || d.v !== 2) return d;                                   // old long format: pass through
+    var tr = d.tr || {}, k = tr.k | 0, lo = tr.lo || [], vf = tr.vf || [];
+    var words = d.w || ['Outcome', 'successful', 'unsuccessful'];
+    function label(n) { return (d.al && d.al[n - 1]) || ('Attribute ' + ((lo[n - 1] | 0) + 1)); }
+    function word(n, s) { var flip = (vf[n - 1] === 1 || vf[n - 1] === '1'); return ((s === 1) !== flip) ? 'high' : 'low'; }
+    function term(t) {
+      var n = t[0], s = t[1], c = t[2];
+      var conn = c === 'o' ? 'or' : (c === 'a' ? 'and' : null);
+      if (n === 0) return { varId: 'success', displayedAs: words[0], value: s === 1 ? words[1] : words[2], state: s === 1 ? 'on' : 'off', conn: conn };
+      return { varId: 'attr' + n, displayedAs: label(n), value: word(n, s), state: s === 1 ? 'on' : 'off', internalHigh: s === 1, conn: conn };
+    }
+    function text(list) {
+      if (!list || !list.length) return '(any)';
+      var groups = [];
+      list.forEach(function (t, i) { var tok = t.displayedAs + '=' + t.value; if (i === 0 || t.conn === 'or') groups.push([tok]); else groups[groups.length - 1].push(tok); });
+      return groups.map(function (g) { return g.length > 1 ? '(' + g.join(' AND ') + ')' : g[0]; }).join(' OR ');
+    }
+    function query(q, deleted) {
+      var conds = q[1].map(term), tgt = q[2].map(term);
+      var o = { queryNum: q[0], conditionsText: text(conds), targetText: text(tgt), conditions: conds, target: tgt, percentage: q[3], nMatchingConditions: q[4], impossibleCondition: q[5] === 1 };
+      if (deleted) o.deletedAtMs = q[6];
+      return o;
+    }
+    var results = (d.r || []).map(function (q) { return query(q, false); });
+    var deleted = (d.x || []).map(function (q) { return query(q, true); });
+    var byNum = {}; results.concat(deleted).forEach(function (r) { byNum[r.queryNum] = r; });
+    var Z = { c: 'cond', t: 'target' }, C = { a: 'and', o: 'or' };
+    var NAMES = { ss: 'session_start', ac: 'add_chip', mc: 'move_chip', rc: 'remove_chip', tc: 'toggle_connector', tp: 'toggle_pending', sr: 'show_result', dr: 'delete_result', rr: 'reorder_result', sc: 'scroll', ne: 'notes_edit', rb: 'reset_builder', ws: 'empty_warning_shown', wb: 'empty_warning_back', wp: 'empty_warning_proceed', qs: 'quiz_submit' };
+    function vid(a) { return a === 0 ? 'success' : 'attr' + a; }
+    function val(a, s) { return a === 0 ? (s === 1 ? words[1] : words[2]) : word(a, s); }
+    function event(e) {
+      var type = NAMES[e[1]] || e[1], o = { t: e[0], type: type }, q;
+      switch (type) {
+        case 'session_start': o.participantId = d.id; o.model = tr.m; o.distribution = tr.d; o.labelOrder = lo; o.valueFlip = vf; break;
+        case 'add_chip': o.zone = Z[e[2]] || e[2]; o.varId = vid(e[3]); o.state = e[4] === 1 ? 'on' : 'off'; o.value = val(e[3], e[4]); o.conn = C[e[5]] || null; o.via = e[6] === 'd' ? 'drag' : 'menu'; break;
+        case 'move_chip': o.from = Z[e[2]] || e[2]; o.to = Z[e[3]] || e[3]; o.varId = vid(e[4]); o.state = e[5] === 1 ? 'on' : 'off'; o.value = val(e[4], e[5]); break;
+        case 'remove_chip': o.zone = Z[e[2]] || e[2]; o.varId = vid(e[3]); o.state = e[4] === 1 ? 'on' : 'off'; o.value = val(e[3], e[4]); break;
+        case 'toggle_connector': o.zone = Z[e[2]] || e[2]; o.index = e[3]; o.to = C[e[4]] || e[4]; break;
+        case 'toggle_pending': o.zone = Z[e[2]] || e[2]; o.to = C[e[3]] || e[3]; break;
+        case 'show_result': q = byNum[e[2]]; o.queryNum = e[2]; o.conditionsText = q ? q.conditionsText : null; o.targetText = q ? q.targetText : null; o.percentage = e[3]; o.nMatchingConditions = e[4]; break;
+        case 'delete_result': q = byNum[e[2]]; o.queryNum = e[2]; o.conditionsText = q ? q.conditionsText : null; o.targetText = q ? q.targetText : null; o.percentage = e[3]; break;
+        case 'reorder_result': o.queryNum = e[2]; o.fromIndex = e[3]; o.toIndex = e[4]; break;
+        case 'scroll': o.row = e[2]; o.maxRow = e[3]; break;
+        case 'notes_edit': o.chars = e[2]; break;
+        case 'reset_builder': o.hadConditions = e[2]; o.hadTargets = e[3]; break;
+        case 'empty_warning_shown': case 'empty_warning_back': case 'empty_warning_proceed': o.numResults = e[2]; break;
+        case 'quiz_submit': o.attempt = e[2]; o.correct = e[3] === 1; break;
+        default: if (e[2] && typeof e[2] === 'object') { for (var key in e[2]) o[key] = e[2][key]; }
+      }
+      return o;
+    }
+    var treatment = { model: tr.m, distribution: tr.d, nAttributes: k, nCandidates: tr.nc, seed: tr.s, labelOrder: lo, displayOrder: tr.do, valueFlip: vf, generation: tr.g };
+    if (tr.ri !== undefined) treatment.relevantIndices = tr.ri;
+    if (tr.ok !== undefined) treatment.piIrrelevanceOK = tr.ok;
+    if (tr.ir !== undefined) treatment.irrelevantRate = tr.ir;
+    var sc = d.sc || [], no = d.no || ['', 0, 0, null], ew = d.ew || [0, 0, 0];
+    var out = {
+      schemaVersion: 2, participantId: d.id, treatment: treatment, numResults: d.nr, results: results, deletedResults: deleted,
+      datasetScroll: { scrollEvents: sc[0], maxRowReached: sc[1], rowsTotal: sc[2], maxFraction: sc[3], maxScrollTopPx: sc[4], firstScrollMs: sc[5] },
+      emptyWarning: { shown: ew[0], wentBack: ew[1], proceeded: ew[2] === 1 },
+      notes: { text: no[0], chars: no[1], edits: no[2], lastEditedMs: no[3] },
+      events: (d.e || []).map(event),
+      eventsTruncated: d.et === 1, notesTruncated: d.nt === 1
+    };
+    if (d.et === 1) out.numEventsDropped = d.ne;
+    if (d.w) { out.outcomeLabel = words[0]; out.successWord = words[1]; out.failWord = words[2]; }
+    if (d.al) out.attributeLabels = d.al;
+    return out;
+  }
   var PART1_STATUS = 'missing';
   function loadPart1() {
     var raw = null;
@@ -52,7 +125,7 @@
     // No localStorage fallback: inside the survey Part 1 must come from the pipe, so a
     // failed pipe is recorded (part1Loaded: false) instead of masked by stale data.
     if (!raw) { PART1_STATUS = 'missing'; return null; }
-    var d; try { d = JSON.parse(raw); } catch (_) { PART1_STATUS = 'unparseable'; return null; }
+    var d; try { d = pmDecodePart1(JSON.parse(raw)); } catch (_) { PART1_STATUS = 'unparseable'; return null; }
     PART1_STATUS = 'ok';
     var t = d.treatment || {};
     return {
@@ -331,7 +404,9 @@
   }
 
   // ================= data out =================
-  function currentData() {
+  // Stored in compact form (schema v2) to stay well inside Qualtrics' 20,000-character
+  // limit; verboseData() is the long format the decoder reproduces (getChoiceVerbose() for tests).
+  function verboseData() {
     return {
       participantId: PID,
       part: 'choice',
@@ -357,6 +432,21 @@
       numTrials: trials.length,
       numAnswered: choices.length,
       choices: choices
+    };
+  }
+  window.getChoiceVerbose = function () { return JSON.stringify(verboseData()); };
+  function bits(a) { return a.map(function (b) { return b ? '1' : '0'; }).join(''); }
+  function currentData() {
+    const v = verboseData(), t = v.treatment;
+    return {
+      v: 2, id: v.participantId, part: 'choice',
+      tr: { m: t.model, d: t.distribution, k: t.nAttributes, lo: t.labelOrder, do: t.displayOrder, vf: t.valueFlip, ri: t.relevantIndices, ii: t.irrelevantIndices, c: t.constant, rep: t.repetitions, ctl: t.controls, cp: t.controlProfiles, ro: t.randomizeOrder ? 1 : 0, rs: t.randomizeSides ? 1 : 0, st: t.showTie ? 1 : 0 },
+      p1: [v.part1Loaded ? 1 : 0, v.part1Status],
+      ro: v.recapOrder,
+      rm: v.recapMoves.map(function (m) { return [m.queryNum, m.fromIndex, m.toIndex, m.duringTrial, m.t]; }),
+      nt: v.numTrials, na: v.numAnswered,
+      // one row per round: [trialId, pairId, control, rep, order, choice, chosen, leftInternal, rightInternal, swapped, rtMs, tMs]
+      ch: v.choices.map(function (c) { return [c.trialId, c.pairId, c.control ? 1 : 0, c.rep, c.order, c.choice.charAt(0), c.chosen, bits(c.leftInternal), bits(c.rightInternal), c.swapped ? 1 : 0, c.rtMs, c.tMs]; })
     };
   }
   function save() {
